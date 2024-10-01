@@ -89,6 +89,10 @@ const IMAGE_PRELOAD_COUNT = 3;
  * @param {top|center|bottom} [verticalAlignment=top]         - Where to align image vertically. Can be one of "top", "center", or "bottom"
  * @param {auto|original|fit} [defaultZoom=fit]               - Specify the initial zoom of the image within the viewport while preserving its ratio. Can be one of "auto", "original", or "fit"
  * @param {none|anonymous|use-credentials} [crossOrigin=none] - Configures CORS cross domain behavior for this image, either "none", "anonymous", or "use-credentials", similar to [DOM `img` crossOrigin property](https://developer.mozilla.org/en-US/docs/Web/API/HTMLImageElement/crossOrigin).
+ * 
+ * 
+ * @param {float=} [defaultZoomScale=1] - Default zoom scale for the image when loaded (FJN custom)
+ * @param {boolean=} [initZoomPositionToCenter=false] - Default zoom position to center (FJN custom)
  */
 const TagAttrs = types.model({
   value: types.maybeNull(types.string),
@@ -126,6 +130,11 @@ const TagAttrs = types.model({
   defaultzoom: types.optional(types.enumeration(["auto", "original", "fit"]), "fit"),
 
   crossorigin: types.optional(types.enumeration(["none", "anonymous", "use-credentials"]), "none"),
+
+  // custom properties (FJN custom)
+  defaultzoomscale: types.optional(types.string, "1"),
+  initzoompositiontocenter: types.optional(types.boolean, false),
+
 });
 
 const IMAGE_CONSTANTS = {
@@ -374,9 +383,9 @@ const Model = types
       return useRawResult
         ? structuredClone(region._rawResult)
         : {
-            ...imageDimension,
-            value,
-          };
+          ...imageDimension,
+          value,
+        };
     },
 
     /**
@@ -1002,15 +1011,15 @@ const Model = types
         this.setZoomPosition(
           self.zoomingPositionY * ratioK,
           self.stageComponentSize.height -
-            self.zoomingPositionX * ratioK -
-            self.stageComponentSize.height * self.zoomScale,
+          self.zoomingPositionX * ratioK -
+          self.stageComponentSize.height * self.zoomScale,
         );
       }
       if (degree === 90) {
         this.setZoomPosition(
           self.stageComponentSize.width -
-            self.zoomingPositionY * ratioK -
-            self.stageComponentSize.width * self.zoomScale,
+          self.zoomingPositionY * ratioK -
+          self.stageComponentSize.width * self.zoomScale,
           self.zoomingPositionX * ratioK,
         );
       }
@@ -1107,6 +1116,15 @@ const Model = types
       }
       // Don't force unselection of regions during the updateObjects callback from history reinit
       setTimeout(() => self.annotation?.reinitHistory(false), 0);
+    },
+
+    updateImageZoomInitProps() {
+      if (self.defaultzoomscale) {
+        self.setZoom(self.defaultzoomscale);
+      }
+      if (self.initzoompositiontocenter === true) {
+        self.resetZoomPositionToCenter();
+      }
     },
 
     checkLabels() {
@@ -1256,6 +1274,7 @@ const ImageModel = types.compose(
   Model,
   isFF(FF_DEV_3793) ? CoordsCalculations : AbsoluteCoordsCalculations,
 );
+console.log('ImageModel', ImageModel);
 
 const HtxImage = inject("store")(ImageView);
 

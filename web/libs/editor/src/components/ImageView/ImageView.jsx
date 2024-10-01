@@ -999,6 +999,7 @@ export default observer(
                   src={item.currentSrc}
                   onLoad={(e) => {
                     item.updateImageSize(e);
+                    item.updateImageZoomInitProps();
                     item.currentImageEntity.setImageLoaded(true);
                   }}
                   onError={this.handleError}

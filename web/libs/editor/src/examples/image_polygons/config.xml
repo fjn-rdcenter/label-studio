@@ -1,7 +1,18 @@
 <View>
-  <Image name="img" value="$image" showMousePos="true" zoom="true"></Image>
+  <Image name="img" value="$timelapse[0].image_urls[0]" showMousePos="true" zoom="true" defaultZoomScale="2" initZoomPositionToCenter="true"></Image>
   <PolygonLabels name="tag" toName="img" strokewidth="5" fillcolor="red" pointstyle="circle" pointsize="small">
     <Label value="Hello" background="red"></Label>
     <Label value="World" background="blue"></Label>  
   </PolygonLabels>
 </View>
+<!-- <View>
+  <Repeater on="$timelapse" indexFlag="{{idx}}" mode="pagination">
+
+            <Image name="img_{{idx}}" valueList="$timelapse[{{idx}}].image_urls" showMousePos="true" zoom="true" maxWidth="auto" verticalAlignment="center" horizontalAlignment="center" defaultZoomScale="2" initZoomPositionToCenter="true"></Image>
+    <Header value="$timelapse[{{idx}}].time"/>
+    <KeyPointLabels name="kp-{{idx}}" toName="img_{{idx}}">
+      <Label value="MicroPN" background="red" />
+    </KeyPointLabels>
+  </Repeater>
+</View> -->
+
