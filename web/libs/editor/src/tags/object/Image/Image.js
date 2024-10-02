@@ -1119,11 +1119,35 @@ const Model = types
     },
 
     updateImageZoomInitProps() {
-      if (self.defaultzoomscale) {
-        self.setZoom(self.defaultzoomscale);
-      }
       if (self.initzoompositiontocenter === true) {
         self.resetZoomPositionToCenter();
+      }
+      if (self.defaultzoomscale) {
+        // simulate handle zoom with defaultzoomscale and zomposition center
+        const mouseRelativePos = { x: self.canvasSize.width / 2, y: self.canvasSize.height / 2 }; 
+
+        let zoomScale = self.currentZoom;
+        zoomScale = self.defaultzoomscale;
+
+        // DON'T TOUCH THIS
+        let stageScale = self.zoomScale;
+
+        const mouseAbsolutePos = {
+          x: (mouseRelativePos.x - self.zoomingPositionX) / stageScale,
+          y: (mouseRelativePos.y - self.zoomingPositionY) / stageScale,
+        };
+
+        self.setZoom(zoomScale);
+
+        stageScale = self.zoomScale;
+
+        const zoomingPosition = {
+          x: -(mouseAbsolutePos.x - mouseRelativePos.x / stageScale) * stageScale,
+          y: -(mouseAbsolutePos.y - mouseRelativePos.y / stageScale) * stageScale,
+        };
+
+        self.setZoomPosition(zoomingPosition.x, zoomingPosition.y);
+        self.updateImageAfterZoom();
       }
     },
 
