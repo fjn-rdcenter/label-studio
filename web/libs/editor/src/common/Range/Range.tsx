@@ -66,7 +66,7 @@ export const Range: FC<RangeProps> = ({
 
     if (currentValueShadow !== newValue || force) {
       setValue(newValue);
-      if (notify || continuous || force) onChange?.(value);
+      if (notify || continuous || force) onChange?.(newValue);
       currentValueShadow = newValue;
     }
   };
@@ -85,7 +85,7 @@ export const Range: FC<RangeProps> = ({
     (offset) => {
       const realMax = max - min;
       const value = clamp(realMax * (offset / size) + min, min, max);
-
+      console.log("offsetToValue:",value);
       return value;
     },
     [min, max, size],
@@ -98,6 +98,7 @@ export const Range: FC<RangeProps> = ({
   }, [step, multi, currentValue]);
 
   const decrease = useCallback(() => {
+    console.log('decrease');
     if (multi) return;
     if (onMinIconClick) return onMinIconClick(currentValue);
     updateValue((currentValue as number) - step);
@@ -135,10 +136,10 @@ export const Range: FC<RangeProps> = ({
     [align, min, max, reverse, currentValue],
   );
 
-  const sizeProperty = align === "horizontal" ? "minWidth" : "minHeight";
+  const minSizeProperty = align === "horizontal" ? "minWidth" : "minHeight";
 
   return (
-    <Block name="range" mod={{ align }} style={{ [sizeProperty]: size }}>
+    <Block name="range" mod={{ align }} >
       {reverse
         ? maxIcon && (
             <Elem name="icon" onMouseDown={increase}>
@@ -150,7 +151,7 @@ export const Range: FC<RangeProps> = ({
               {minIcon}
             </Elem>
           )}
-      <Elem name="body" onClick={onClick}>
+      <Elem name="body" onClick={onClick} style={{ [minSizeProperty]: size }}>
         <Elem name="line" />
         <RangeIndicator align={align} reverse={reverse} value={currentValue} valueConvert={valueToPercentage} />
         {isMultiArray ? (

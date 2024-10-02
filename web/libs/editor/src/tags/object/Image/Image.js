@@ -91,8 +91,10 @@ const IMAGE_PRELOAD_COUNT = 3;
  * @param {none|anonymous|use-credentials} [crossOrigin=none] - Configures CORS cross domain behavior for this image, either "none", "anonymous", or "use-credentials", similar to [DOM `img` crossOrigin property](https://developer.mozilla.org/en-US/docs/Web/API/HTMLImageElement/crossOrigin).
  * 
  * 
- * @param {float=} [defaultZoomScale=1] - Default zoom scale for the image when loaded (FJN custom)
- * @param {boolean=} [initZoomPositionToCenter=false] - Default zoom position to center (FJN custom)
+ * @param {float=} [defaultZoomScale=1] - Default current zoom for the image when loaded (FJN custom)
+ * @param {boolean=} [initZoomPositionToCenter=false] - Default zoom position to center when loaded (FJN custom)
+ * @param {boolean=} [rangePagination=false] - Toggle range input pagination (FJN custom)
+ * @param {number=} [defaultPaginationValue=0] -Default value for pagination when display list image (FJN custom)
  */
 const TagAttrs = types.model({
   value: types.maybeNull(types.string),
@@ -134,6 +136,8 @@ const TagAttrs = types.model({
   // custom properties (FJN custom)
   defaultzoomscale: types.optional(types.string, "1"),
   initzoompositiontocenter: types.optional(types.boolean, false),
+  rangepagination: types.optional(types.boolean, false),
+  defaultpaginationvalue: types.optional(types.string, "0"),
 
 });
 
@@ -600,15 +604,17 @@ const Model = types
             index,
           });
         });
+        self.setCurrentImage(clamp(self.defaultpaginationvalue,0,parsedValue.length-1));
       } else {
         self.imageEntities.push({
           id: `${self.name}#0`,
           src: parsedValue,
           index: 0,
         });
+        self.setCurrentImage(0);
       }
 
-      self.setCurrentImage(0);
+
     }
 
     function afterAttach() {
@@ -767,7 +773,7 @@ const Model = types
     },
 
     setCurrentImage(index = 0) {
-      index = index ?? 0;
+      index = index ?? self.defaultpaginationvalue;
       if (index === self.currentImage) return;
 
       self.currentImage = index;

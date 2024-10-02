@@ -9,6 +9,7 @@ import { Pagination } from "../../common/Pagination/Pagination";
 import { Hotkey } from "../../core/Hotkey";
 import { FF_DEV_1170, isFF } from "../../utils/feature-flags";
 import { AnnotationMixin } from "../../mixins/AnnotationMixin";
+import Slider from "@mui/joy/Slider";
 
 const Model = types.model({
   id: types.identifier,
@@ -187,24 +188,24 @@ const HtxPagedView = observer(({ item }) => {
   }, [page, pageSize]);
 
   return (
-    <div>
+    <div style={{paddingLeft:'24px'}}>
       {renderPage()}
-      <Pagination
-        currentPage={page}
-        totalPages={totalPages}
-        pageSize={pageSize}
-        pageSizeOptions={PAGE_SIZE_OPTIONS}
-        pageSizeSelectable={false}
-        size={"medium"}
-        onChange={(page, maxPerPage = pageSize) => {
-          item.annotation.unselectAll();
-          setPage(page);
-          if (maxPerPage !== pageSize) {
-            setStoredPageSize("repeater", maxPerPage);
-            setPageSize(maxPerPage);
-          }
-        }}
-      />
+      <div style={{width: 500}}>
+
+       <Slider 
+                          min={1}
+                          max={totalPages}
+                          step={1}
+                          value={page}  
+                          onChange={(event, value) => {
+                            item.annotation.unselectAll();
+                            setPage(value);
+                          }}                       
+                          valueLabelDisplay="on"
+                          marks
+                          valueLabelFormat={(value)=>{return `Timelapse ${value}`}}
+                          ></Slider>
+      </div>
     </div>
   );
 });

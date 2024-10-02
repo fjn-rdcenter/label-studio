@@ -9,7 +9,7 @@ import ObjectTag from "../../components/Tags/Object";
 import Tree from "../../core/Tree";
 import styles from "./ImageView.module.scss";
 import { errorBuilder } from "../../core/DataValidator/ConfigValidator";
-import { chunks, findClosestParent } from "../../utils/utilities";
+import { chunks, clamp, findClosestParent } from "../../utils/utilities";
 import Konva from "konva";
 import { LoadingOutlined } from "@ant-design/icons";
 import { Toolbar } from "../Toolbar/Toolbar";
@@ -35,6 +35,7 @@ import {
 } from "../../utils/feature-flags";
 import { Pagination } from "../../common/Pagination/Pagination";
 import { Image } from "./Image";
+import Slider from '@mui/joy/Slider';
 
 Konva.showWarnings = false;
 
@@ -939,7 +940,7 @@ export default observer(
 
       return (
         <ObjectTag item={item} className={wrapperClasses.join(" ")}>
-          {paginationEnabled ? (
+          {paginationEnabled && item.rangepagination === false ? (
             <div className={styles.pagination}>
               <Pagination
                 size="small"
@@ -948,18 +949,18 @@ export default observer(
                 noPadding
                 hotkey={{
                   prev: "image:prev",
-                  next: "image:next",
+                  next: "image:next"
                 }}
                 currentPage={item.currentImage + 1}
                 totalPages={item.parsedValueList.length}
-                onChange={(n) => item.setCurrentImage(n - 1)}
+                onChange={n => item.setCurrentImage(n - 1)}
                 pageSizeSelectable={false}
               />
             </div>
           ) : null}
 
           <div
-            ref={(node) => {
+            ref={node => {
               item.setContainerRef(node);
               this.attachObserver(node);
             }}
@@ -967,7 +968,7 @@ export default observer(
             style={containerStyle}
           >
             <div
-              ref={(node) => {
+              ref={node => {
                 this.filler = node;
               }}
               className={styles.filler}
@@ -976,7 +977,7 @@ export default observer(
 
             {isFF(FF_LSDV_4583_6) ? (
               <Image
-                ref={(ref) => {
+                ref={ref => {
                   item.setImageRef(ref);
                   this.imageRef.current = ref;
                 }}
@@ -988,16 +989,21 @@ export default observer(
                 overlay={<CanvasOverlay item={item} />}
               />
             ) : (
-              <div className={[styles.frame, ...imagePositionClassnames].join(" ")} style={item.canvasSize}>
+              <div
+                className={[styles.frame, ...imagePositionClassnames].join(" ")}
+                style={item.canvasSize}
+              >
                 <img
-                  ref={(ref) => {
+                  ref={ref => {
                     item.setImageRef(ref);
                     this.imageRef.current = ref;
                   }}
-                  loading={isFF(FF_DEV_3077) && !item.lazyoff ? "lazy" : "false"}
+                  loading={
+                    isFF(FF_DEV_3077) && !item.lazyoff ? "lazy" : "false"
+                  }
                   style={item.imageTransform}
                   src={item.currentSrc}
-                  onLoad={(e) => {
+                  onLoad={e => {
                     item.updateImageSize(e);
                     item.updateImageZoomInitProps();
                     item.currentImageEntity.setImageLoaded(true);
@@ -1026,11 +1032,14 @@ export default observer(
                     this.crosshairRef.current.updateVisibility(true);
                   }
                 }}
-                onMouseLeave={(e) => {
+                onMouseLeave={e => {
                   if (this.crosshairRef.current) {
                     this.crosshairRef.current.updateVisibility(false);
                   }
-                  const { width: stageWidth, height: stageHeight } = item.canvasSize;
+                  const {
+                    width: stageWidth,
+                    height: stageHeight
+                  } = item.canvasSize;
                   const { offsetX: mouseposX, offsetY: mouseposY } = e.evt;
                   const newEvent = { ...e };
 
@@ -1057,6 +1066,30 @@ export default observer(
           </div>
 
           {toolsReady && imageIsLoaded && this.renderTools()}
+          {paginationEnabled && item.rangepagination === true ? (
+            <div
+              className="lsf-toolbar lsf-toolbar_alignment_right"
+              style={{ marginLeft: "20px", paddingBottom: "12px" }}
+            >
+              <div style={{ height: 300, paddingTop: "12px" }}>
+                <Slider
+                  min={1}
+                  orientation="vertical"
+                  max={item.parsedValueList.length}
+                  step={1}
+                  value={item.currentImage + 1}
+                  onChange={(event, value) => {
+                    item.setCurrentImage(Math.round(value) - 1);
+                  }}
+                  valueLabelDisplay="on"
+                  marks
+                  valueLabelFormat={value => {
+                    return `Slice ${value}`;
+                  }}
+                ></Slider>
+              </div>
+            </div>
+          ) : null}
           {item.images.length > 1 && (
             <div className={styles.gallery}>
               {item.images.map((src, i) => (

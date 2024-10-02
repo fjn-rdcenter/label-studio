@@ -1,3 +1,5 @@
+import { tr } from "date-fns/locale";
+
 // Outliner + Details
 export const FF_DEV_1170 = "ff_front_1170_outliner_030222_short";
 
@@ -364,6 +366,8 @@ function getFeatureFlags() {
   return {
     ...(window.APP_SETTINGS?.feature_flags ?? {}),
     // could be used to explicitly set flags for testing, i.e. [FF_DEV_3793]: true
+    fflag_feat_front_lsdv_4583_multi_image_segmentation_short: true,
+    fflag_fix_front_dev_3377_image_regions_shift_on_resize_280922_short: false,
   };
 }
 
