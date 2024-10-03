@@ -25,6 +25,10 @@ const TaskStore = types
      */
     data: types.maybeNull(types.string),
     queue: types.optional(types.maybeNull(types.string), null),
+
+    zoomingPositionX: types.optional(types.maybeNull(types.number), null),
+    zoomingPositionY: types.optional(types.maybeNull(types.number), null),
+    currentZoom: types.optional(types.maybeNull(types.number), null),
   })
   .views((self) => ({
     get app() {
@@ -44,6 +48,15 @@ const TaskStore = types
       }
       return null;
     },
+  }))
+  .actions((self) => ({
+    setTaskZoomPositon(x,y) {
+      self.zoomingPositionX = x;
+      self.zoomingPositionY = y;
+    },
+    setTaskCurrentZoom(zoom) {
+      self.currentZoom = zoom;
+    }
   }));
 
 export default TaskStore;

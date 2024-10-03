@@ -700,6 +700,10 @@ export default observer(
         return;
       }
       const { item } = this.props;
+      if (item.keepzoomingposition === true){
+        const { store } = item;
+        store.task.setTaskZoomPositon(item.zoomingPositionX, item.zoomingPositionY);
+      }
 
       return item.event("mouseup", e, x, y);
     };
@@ -1005,8 +1009,8 @@ export default observer(
                   src={item.currentSrc}
                   onLoad={e => {
                     item.updateImageSize(e);
-                    item.updateImageZoomInitProps();
                     item.currentImageEntity.setImageLoaded(true);
+                    item.updateImageZoomInitProps(store.task.currentZoom, store.task.zoomingPositionX, store.task.zoomingPositionY);
                   }}
                   onError={this.handleError}
                   crossOrigin={item.imageCrossOrigin}

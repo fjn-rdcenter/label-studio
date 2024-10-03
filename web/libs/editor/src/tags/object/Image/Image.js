@@ -91,10 +91,11 @@ const IMAGE_PRELOAD_COUNT = 3;
  * @param {none|anonymous|use-credentials} [crossOrigin=none] - Configures CORS cross domain behavior for this image, either "none", "anonymous", or "use-credentials", similar to [DOM `img` crossOrigin property](https://developer.mozilla.org/en-US/docs/Web/API/HTMLImageElement/crossOrigin).
  * 
  * 
- * @param {float=} [defaultZoomScale=1] - Default current zoom for the image when loaded (FJN custom)
+ * @param {float=} [defaultZoomScale=1] - Default zoom for the image when loaded (FJN custom)
  * @param {boolean=} [initZoomPositionToCenter=false] - Default zoom position to center when loaded (FJN custom)
  * @param {boolean=} [rangePagination=false] - Toggle range input pagination (FJN custom)
- * @param {number=} [defaultPaginationValue=0] -Default value for pagination when display list image (FJN custom)
+ * @param {number=} [defaultPaginationValue=0] - Default value for pagination when display list image (FJN custom)
+ * @param {boolean=} [keepZoomingPosition=false] - Keep zoom scale and zoom position from last image if no image before then use default zoom setting (FJN custom)
  */
 const TagAttrs = types.model({
   value: types.maybeNull(types.string),
@@ -138,6 +139,7 @@ const TagAttrs = types.model({
   initzoompositiontocenter: types.optional(types.boolean, false),
   rangepagination: types.optional(types.boolean, false),
   defaultpaginationvalue: types.optional(types.string, "0"),
+  keepzoomingposition: types.optional(types.boolean, false),
 
 });
 
@@ -933,12 +935,18 @@ const Model = types
         zoomScale = val > 0 ? zoomScale * self.zoomBy : zoomScale / self.zoomBy;
         if (self.negativezoom !== true && zoomScale <= 1) {
           self.setZoom(1);
+          if (self.keepzoomingposition === true) {
+            self.store.task.setTaskCurrentZoom(1)
+          }
           self.setZoomPosition(0, 0);
           self.updateImageAfterZoom();
           return;
         }
         if (zoomScale <= 1) {
           self.setZoom(zoomScale);
+          if (self.keepzoomingposition === true) {
+            self.store.task.setTaskCurrentZoom(zoomScale)
+          }
           self.setZoomPosition(0, 0);
           self.updateImageAfterZoom();
           return;
@@ -953,6 +961,9 @@ const Model = types
         };
 
         self.setZoom(zoomScale);
+        if (self.keepzoomingposition === true) {
+          self.store.task.setTaskCurrentZoom(zoomScale)
+        }
 
         stageScale = self.zoomScale;
 
@@ -962,6 +973,9 @@ const Model = types
         };
 
         self.setZoomPosition(zoomingPosition.x, zoomingPosition.y);
+        if (self.keepzoomingposition === true) {
+          self.store.task.setTaskZoomPositon(zoomingPosition.x, zoomingPosition.y)
+        }
         self.updateImageAfterZoom();
       }
     },
@@ -1063,11 +1077,12 @@ const Model = types
         const zoomChangeRatio = self.stageZoom / prevStageZoom;
         const scaleChangeRatio = self.zoomScale / prevZoomScale;
         const changeRatio = zoomChangeRatio * scaleChangeRatio;
-
-        self.setZoomPosition(
-          self.zoomingPositionX * changeRatio + (self.canvasSize.width / 2 - (prevWidth / 2) * changeRatio),
-          self.zoomingPositionY * changeRatio + (self.canvasSize.height / 2 - (prevHeight / 2) * changeRatio),
-        );
+        if( self.keepzoomingposition === false && self.initzoompositiontocenter === false) {
+          self.setZoomPosition(
+            self.zoomingPositionX * changeRatio + (self.canvasSize.width / 2 - (prevWidth / 2) * changeRatio),
+            self.zoomingPositionY * changeRatio + (self.canvasSize.height / 2 - (prevHeight / 2) * changeRatio),
+          );
+        }
       }
 
       self.sizeUpdated = true;
@@ -1124,37 +1139,40 @@ const Model = types
       setTimeout(() => self.annotation?.reinitHistory(false), 0);
     },
 
-    updateImageZoomInitProps() {
-      if (self.initzoompositiontocenter === true) {
+    updateImageZoomInitProps(lastZoomScale, lastZoomingPositionX, lastZoomingPositionY) {
+
+      let defaultZoomScale = self.defaultzoomscale;
+
+      // if last zooming position kept and last zoom scale is not null then set default zoom scale to last zoom scale
+      if(self.keepzoomingposition === true && lastZoomScale !== null) {
+        defaultZoomScale = lastZoomScale
+      }
+      if (defaultZoomScale !== 1) {
+
+        self.setZoom(defaultZoomScale);
+        self.store.task.setTaskCurrentZoom(Number(defaultZoomScale));
+      }
+
+      // Check if the initial zoom position should be centered and zooming position should not be kept
+      if (self.initzoompositiontocenter === true && self.keepzoomingposition === false) {
+        // Reset the zoom position to the center
         self.resetZoomPositionToCenter();
+      } else if (self.keepzoomingposition === true) {
+
+        // Check if the last zooming positions are available
+        if (lastZoomingPositionX !== null && lastZoomingPositionY !== null) {
+          // Set the zoom position to the last known positions
+          self.setZoomPosition(lastZoomingPositionX, lastZoomingPositionY);
+
+        } else if (lastZoomingPositionX === null && lastZoomingPositionY === null && self.initzoompositiontocenter === true) {
+          // If last zooming positions are not available and initial zoom position should be centered
+          // Reset the zoom position to the center
+          self.resetZoomPositionToCenter();
+        }
       }
-      if (self.defaultzoomscale) {
-        // simulate handle zoom with defaultzoomscale and zomposition center
-        const mouseRelativePos = { x: self.canvasSize.width / 2, y: self.canvasSize.height / 2 }; 
+      self.updateImageAfterZoom();
 
-        let zoomScale = self.currentZoom;
-        zoomScale = self.defaultzoomscale;
 
-        // DON'T TOUCH THIS
-        let stageScale = self.zoomScale;
-
-        const mouseAbsolutePos = {
-          x: (mouseRelativePos.x - self.zoomingPositionX) / stageScale,
-          y: (mouseRelativePos.y - self.zoomingPositionY) / stageScale,
-        };
-
-        self.setZoom(zoomScale);
-
-        stageScale = self.zoomScale;
-
-        const zoomingPosition = {
-          x: -(mouseAbsolutePos.x - mouseRelativePos.x / stageScale) * stageScale,
-          y: -(mouseAbsolutePos.y - mouseRelativePos.y / stageScale) * stageScale,
-        };
-
-        self.setZoomPosition(zoomingPosition.x, zoomingPosition.y);
-        self.updateImageAfterZoom();
-      }
     },
 
     checkLabels() {
@@ -1304,7 +1322,6 @@ const ImageModel = types.compose(
   Model,
   isFF(FF_DEV_3793) ? CoordsCalculations : AbsoluteCoordsCalculations,
 );
-console.log('ImageModel', ImageModel);
 
 const HtxImage = inject("store")(ImageView);
 
