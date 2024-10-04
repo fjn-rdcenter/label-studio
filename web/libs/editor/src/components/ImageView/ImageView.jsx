@@ -853,6 +853,29 @@ export default observer(
       this.updateReadyStatus();
 
       hotkeys.addDescription("shift", "Pan image");
+
+      
+      setTimeout(() => {
+        if(item.defaultpaginationvalue !== null){
+          item.setCurrentImage(Number(item.defaultpaginationvalue));
+        }
+        hotkeys.addNamed("slice:next", () => {
+          let totalPages = item.parsedValueList.length;
+          let page = item.currentImage + 1;
+          if (page < totalPages) {
+            page = page + 1;
+            item.setCurrentImage(page - 1);
+          }
+        });
+
+        hotkeys.addNamed("slice:prev", () => {
+          let page = item.currentImage + 1;
+          if (page > 2) {
+            page = page - 1;
+            item.setCurrentImage(page - 1);
+          }
+        });
+      });
     }
 
     attachObserver = (node) => {
@@ -876,6 +899,8 @@ export default observer(
       window.removeEventListener("resize", this.onResize);
 
       hotkeys.removeDescription("shift");
+      hotkeys.removeNamed("slice:next");
+      hotkeys.removeNamed("slice:prev");
     }
 
     componentDidUpdate() {
@@ -1089,6 +1114,11 @@ export default observer(
                   marks
                   valueLabelFormat={value => {
                     return `Slice ${value}`;
+                  }}
+                  onKeyDown={e => {
+                    if(e.ctrlKey) {
+                      e.target.blur();
+                    }
                   }}
                 ></Slider>
               </div>

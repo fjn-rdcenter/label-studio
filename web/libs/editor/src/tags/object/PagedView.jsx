@@ -73,7 +73,7 @@ const TagAttrs = types.model({
 
 const PagedViewModel = types.compose("PagedViewModel", Model, AnnotationMixin, TagAttrs);
 const PAGE_QUERY_PARAM = "view_page";
-const hotkeys = Hotkey("Repeater");
+const hotkeys = Hotkey("PagedView");
 const DEFAULT_PAGE_SIZE = 1;
 const PAGE_SIZE_OPTIONS = [1, 5, 10, 25, 50, 100];
 
@@ -138,7 +138,9 @@ const HtxPagedView = observer(({ item }) => {
     try{
       let onKey = item.$treenode._initialSnapshot.on.replace("$",'');
       let labelKey = item.tooltiplabelkey;
-      label = item.annotationStore?.store?.task.dataObj[onKey][page-1][item.tooltiplabelkey];
+      if(labelKey){
+        label = item.annotationStore?.store?.task.dataObj[onKey][page-1][item.tooltiplabelkey];
+      }
     }
     catch(e){
       console.log(e);
@@ -168,13 +170,13 @@ const HtxPagedView = observer(({ item }) => {
     }
 
     setTimeout(() => {
-      hotkeys.addNamed("repeater:next-page", () => {
+      hotkeys.addNamed("frame:next-page", () => {
         if (page < totalPages) {
           setPage(page + 1);
         }
       });
 
-      hotkeys.addNamed("repeater:previous-page", () => {
+      hotkeys.addNamed("frame:previous-page", () => {
         if (page > 1) {
           setPage(page - 1);
         }
@@ -182,8 +184,8 @@ const HtxPagedView = observer(({ item }) => {
     });
 
     return () => {
-      hotkeys.removeNamed("repeater:next-page");
-      hotkeys.removeNamed("repeater:previous-page");
+      hotkeys.removeNamed("frame:next-page");
+      hotkeys.removeNamed("frame:previous-page");
     };
   }, [page]);
 
@@ -252,6 +254,12 @@ const HtxPagedView = observer(({ item }) => {
                 },
               },
             },
+          }}
+          onKeyDown={e => {
+            if(e.ctrlKey) {
+              e.target.blur();
+            }
+          
           }}
         ></Slider>
       </div>

@@ -138,7 +138,7 @@ const TagAttrs = types.model({
   defaultzoomscale: types.optional(types.string, "1"),
   initzoompositiontocenter: types.optional(types.boolean, false),
   rangepagination: types.optional(types.boolean, false),
-  defaultpaginationvalue: types.optional(types.string, "0"),
+  defaultpaginationvalue: types.optional(types.maybeNull(types.string), "0"),
   keepzoomingposition: types.optional(types.boolean, false),
 
 });

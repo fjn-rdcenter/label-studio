@@ -174,5 +174,25 @@
     "key": "ctrl+right",
     "mac": "command+right",
     "description": "Next Image"
+  }, 
+  "frame:next-page": {
+    "key": "ctrl+right",
+    "mac": "command+right",
+    "description": "Next Frame"
+  }, 
+  "frame:previous-page": {
+    "key": "ctrl+left",
+    "mac": "command+left",
+    "description": "Previous Frame"
+  },
+  "slice:next": {
+    "key": "ctrl+up",
+    "mac": "command+up",
+    "description": "Next Slice"
+  }, 
+  "slice:prev": {
+    "key": "ctrl+down",
+    "mac": "command+down",
+    "description": "Previous Slice"
   }
 }
