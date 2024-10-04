@@ -9,7 +9,7 @@ import { Pagination } from "../../common/Pagination/Pagination";
 import { Hotkey } from "../../core/Hotkey";
 import { FF_DEV_1170, isFF } from "../../utils/feature-flags";
 import { AnnotationMixin } from "../../mixins/AnnotationMixin";
-import Slider from "@mui/joy/Slider";
+import Slider, { sliderClasses } from "@mui/joy/Slider";
 
 const Model = types.model({
   id: types.identifier,
@@ -66,7 +66,12 @@ const Model = types.model({
   ]),
 });
 
-const PagedViewModel = types.compose("PagedViewModel", Model, AnnotationMixin);
+// All attributtes are passed from Repeater tag, noitice attribute name will be lowcased when parsing
+const TagAttrs = types.model({
+  tooltiplabelkey: types.optional(types.maybeNull(types.string), null),
+});
+
+const PagedViewModel = types.compose("PagedViewModel", Model, AnnotationMixin, TagAttrs);
 const PAGE_QUERY_PARAM = "view_page";
 const hotkeys = Hotkey("Repeater");
 const DEFAULT_PAGE_SIZE = 1;
@@ -128,6 +133,18 @@ const HtxPagedView = observer(({ item }) => {
   }, []);
 
   const totalPages = Math.ceil(item.children.length / pageSize);
+  const sliderLabel = (page)=>{
+    let label = `Frame ${page}`;
+    try{
+      let onKey = item.$treenode._initialSnapshot.on.replace("$",'');
+      let labelKey = item.tooltiplabelkey;
+      label = item.annotationStore?.store?.task.dataObj[onKey][page-1][item.tooltiplabelkey];
+    }
+    catch(e){
+      console.log(e);
+    }
+    return label;
+  }
 
   useEffect(() => {
     setPageSize(getStoredPageSize("repeater", DEFAULT_PAGE_SIZE));
@@ -188,24 +205,57 @@ const HtxPagedView = observer(({ item }) => {
   }, [page, pageSize]);
 
   return (
-    <div style={{paddingLeft:'24px'}}>
-      {renderPage()}
-      <div style={{width: 500}}>
-
-       <Slider 
-                          min={1}
-                          max={totalPages}
-                          step={1}
-                          value={page}  
-                          onChange={(event, value) => {
-                            item.annotation.unselectAll();
-                            setPage(value);
-                          }}                       
-                          valueLabelDisplay="on"
-                          marks
-                          valueLabelFormat={(value)=>{return `Timelapse ${value}`}}
-                          ></Slider>
+    <div>
+      <div style={{ width: "100%", padding: '17px 21px 0px 21px', background:'white', position:'sticky', top: 0,zIndex:10, boxShadow:"0px 0px 0px 1px rgba(0, 0, 0, 0.05), 0px 5px 10px rgba(0, 0, 0, 0.1)" }}>
+        <Slider
+          min={1}
+          max={totalPages}
+          step={1}
+          value={page}
+          onChange={(event, value) => {
+            item.annotation.unselectAll();
+            setPage(value);
+          }}
+          valueLabelDisplay="on"
+          marks
+          valueLabelFormat={value => {
+            return sliderLabel(value);
+          }}
+          sx={{
+            // Need both of the selectors to make it works on the server-side and client-side
+            [`& [style*="left:0%"], & [style*="left: 0%"]`]: {
+              [`&.${sliderClasses.markLabel}`]: {
+                transform: 'none',
+              },
+              [`& .${sliderClasses.valueLabel}`]: {
+                left: 'calc(var(--Slider-thumbSize) / 2)',
+                borderBottomLeftRadius: 0,
+                '&::before': {
+                  left: 0,
+                  transform: 'translateY(100%)',
+                  borderLeftColor: 'currentColor',
+                },
+              },
+            },
+            [`& [style*="left:100%"], & [style*="left: 100%"]`]: {
+              [`&.${sliderClasses.markLabel}`]: {
+                transform: 'translateX(-100%)',
+              },
+              [`& .${sliderClasses.valueLabel}`]: {
+                right: 'calc(var(--Slider-thumbSize) / 2)',
+                borderBottomRightRadius: 0,
+                '&::before': {
+                  left: 'initial',
+                  right: 0,
+                  transform: 'translateY(100%)',
+                  borderRightColor: 'currentColor',
+                },
+              },
+            },
+          }}
+        ></Slider>
       </div>
+      {renderPage()}
     </div>
   );
 });

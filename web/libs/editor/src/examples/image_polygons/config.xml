@@ -6,7 +6,7 @@
   </PolygonLabels>
 </View> -->
 <View>
-  <Repeater on="$timelapse" indexFlag="{{idx}}" mode="pagination">
+  <Repeater on="$timelapse" indexFlag="{{idx}}" mode="pagination" tooltipLabelKey="time">
 
     <Image name="timelapse_{{idx}}" valueList="$timelapse[{{idx}}].image_urls" showMousePos="true" zoom="true" maxWidth="auto" verticalAlignment="center" horizontalAlignment="center" defaultZoomScale="2" initZoomPositionToCenter="true"
     rangePagination="true" defaultPaginationValue="6" keepZoomingPosition="true"
