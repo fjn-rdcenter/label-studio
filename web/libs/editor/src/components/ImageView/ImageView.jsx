@@ -870,7 +870,7 @@ export default observer(
 
         hotkeys.addNamed("slice:prev", () => {
           let page = item.currentImage + 1;
-          if (page > 2) {
+          if (page > 1) {
             page = page - 1;
             item.setCurrentImage(page - 1);
           }
