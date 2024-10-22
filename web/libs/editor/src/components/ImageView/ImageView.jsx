@@ -847,18 +847,18 @@ export default observer(
 
     componentDidMount() {
       const { item } = this.props;
-
       window.addEventListener("resize", this.onResize);
       this.attachObserver(item.containerRef);
       this.updateReadyStatus();
 
       hotkeys.addDescription("shift", "Pan image");
 
+      if(item.keepcurrentimageindex){
+        const { store } = item;
+        item.setCurrentImage(store.task.currentImageIndex);
+      }
       
       setTimeout(() => {
-        if(item.defaultpaginationvalue !== null){
-          item.setCurrentImage(Number(item.defaultpaginationvalue));
-        }
         hotkeys.addNamed("slice:next", () => {
           let totalPages = item.parsedValueList.length;
           let page = item.currentImage + 1;

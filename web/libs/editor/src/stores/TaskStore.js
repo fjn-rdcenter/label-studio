@@ -29,6 +29,7 @@ const TaskStore = types
     zoomingPositionX: types.optional(types.maybeNull(types.number), null),
     zoomingPositionY: types.optional(types.maybeNull(types.number), null),
     currentZoom: types.optional(types.maybeNull(types.number), null),
+    currentImageIndex: types.optional(types.maybeNull(types.number), null),
   })
   .views((self) => ({
     get app() {
@@ -56,6 +57,9 @@ const TaskStore = types
     },
     setTaskCurrentZoom(zoom) {
       self.currentZoom = zoom;
+    },
+    setTaskCurrentImageIndex(index) {
+      self.currentImageIndex = index;
     }
   }));
 

@@ -96,6 +96,7 @@ const IMAGE_PRELOAD_COUNT = 3;
  * @param {boolean=} [rangePagination=false] - Toggle range input pagination (FJN custom)
  * @param {number=} [defaultPaginationValue=0] - Default value for pagination when display list image (FJN custom)
  * @param {boolean=} [keepZoomingPosition=false] - Keep zoom scale and zoom position from last image if no image before then use default zoom setting (FJN custom)
+ * @param {boolean=} [keepCurrentImageIndex=false] - Keep current image index (on multiple image mode), value was saved in task store, available when using with paged view (Repeater) tag - mean in one task have muilti ImameModel instances (FJN custom)
  */
 const TagAttrs = types.model({
   value: types.maybeNull(types.string),
@@ -140,7 +141,7 @@ const TagAttrs = types.model({
   rangepagination: types.optional(types.boolean, false),
   defaultpaginationvalue: types.optional(types.maybeNull(types.string), "0"),
   keepzoomingposition: types.optional(types.boolean, false),
-
+  keepcurrentimageindex: types.optional(types.boolean, false),
 });
 
 const IMAGE_CONSTANTS = {
@@ -606,7 +607,7 @@ const Model = types
             index,
           });
         });
-        self.setCurrentImage(clamp(self.defaultpaginationvalue,0,parsedValue.length-1));
+        self.setCurrentImage(clamp(Number(self.defaultpaginationvalue),0,parsedValue.length-1));
       } else {
         self.imageEntities.push({
           id: `${self.name}#0`,
@@ -615,7 +616,6 @@ const Model = types
         });
         self.setCurrentImage(0);
       }
-
 
     }
 
@@ -775,9 +775,11 @@ const Model = types
     },
 
     setCurrentImage(index = 0) {
-      index = index ?? self.defaultpaginationvalue;
-      if (index === self.currentImage) return;
-
+      index = index ?? Number(self.defaultpaginationvalue);
+      if (index === self.currentImage) return; 
+      if (self.keepcurrentimageindex === true &&  self.store.task.currentImageIndex !== index) {
+        self.store.task.setTaskCurrentImageIndex(index)
+      }
       self.currentImage = index;
       self.currentImageEntity = self.findImageEntity(index);
       if (isFF(FF_LSDV_4583_6)) self.preloadImages();
@@ -1214,6 +1216,11 @@ const Model = types
 
       self.getToolsManager().event(name, ev.evt || ev, x, y, canvasX, canvasY);
     },
+
+    setDefaultPaginationValue(value) {
+      self.defaultpaginationvalue = clamp(value,0, self.imageEntities.length-1).toString();
+    }
+
   }));
 
 const CoordsCalculations = types
