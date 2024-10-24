@@ -93,10 +93,11 @@ const IMAGE_PRELOAD_COUNT = 3;
  * 
  * @param {float=} [defaultZoomScale=1] - Default zoom for the image when loaded (FJN custom)
  * @param {boolean=} [initZoomPositionToCenter=false] - Default zoom position to center when loaded (FJN custom)
- * @param {boolean=} [rangePagination=false] - Toggle range input pagination (FJN custom)
+ * @param {boolean=} [sliderPagination=false] - Toggle range input pagination (FJN custom)
  * @param {number=} [defaultPaginationValue=0] - Default value for pagination when display list image (FJN custom)
  * @param {boolean=} [keepZoomingPosition=false] - Keep zoom scale and zoom position from last image if no image before then use default zoom setting (FJN custom)
  * @param {boolean=} [keepCurrentImageIndex=false] - Keep current image index (on multiple image mode), value was saved in task store, available when using with paged view (Repeater) tag - mean in one task have muilti ImameModel instances (FJN custom)
+ * @param {boolean=} [highlightAnnotationMark=false] - Highlight mark where image have annotation (on multiple image mode and using slider pagination) (FJN custom)
  */
 const TagAttrs = types.model({
   value: types.maybeNull(types.string),
@@ -138,10 +139,11 @@ const TagAttrs = types.model({
   // custom properties (FJN custom)
   defaultzoomscale: types.optional(types.string, "1"),
   initzoompositiontocenter: types.optional(types.boolean, false),
-  rangepagination: types.optional(types.boolean, false),
+  sliderpagination: types.optional(types.boolean, false),
   defaultpaginationvalue: types.optional(types.maybeNull(types.string), "0"),
   keepzoomingposition: types.optional(types.boolean, false),
   keepcurrentimageindex: types.optional(types.boolean, false),
+  highlightannotationmark: types.optional(types.boolean, false),
 });
 
 const IMAGE_CONSTANTS = {

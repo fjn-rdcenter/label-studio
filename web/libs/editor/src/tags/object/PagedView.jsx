@@ -69,6 +69,7 @@ const Model = types.model({
 // All attributtes are passed from Repeater tag, noitice attribute name will be lowcased when parsing
 const TagAttrs = types.model({
   tooltiplabelkey: types.optional(types.maybeNull(types.string), null),
+  highlightannotationmark: types.optional(types.maybeNull(types.boolean), false)
 });
 
 const PagedViewModel = types.compose("PagedViewModel", Model, AnnotationMixin, TagAttrs);
@@ -123,9 +124,21 @@ const updateQueryPage = (page, currentTaskId = null) => {
   window.history.replaceState(undefined, undefined, `${window.location.pathname}?${params}`);
 };
 
+// custom mark label for MUI joy slider component, take an prop to higlight mark object have annotation (unused)
+// const CustomMarkLabel = (props) => {
+//   const index = props["data-index"];
+//   const mark = props.ownerState.marks[index];
+
+//   return (
+//     <span {...props} style={{color}}>
+//     </span>
+//   );
+// };
+
 const HtxPagedView = observer(({ item }) => {
   const [page, _setPage] = useState(getQueryPage);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [marks, setMarks] = useState([]);
 
   const setPage = useCallback((_page) => {
     _setPage(_page);
@@ -133,20 +146,20 @@ const HtxPagedView = observer(({ item }) => {
   }, []);
 
   const totalPages = Math.ceil(item.children.length / pageSize);
-  const sliderLabel = (page)=>{
+  const sliderLabel = page => {
     let label = `Frame ${page}`;
-    try{
-      let onKey = item.$treenode._initialSnapshot.on.replace("$",'');
+    try {
+      let onKey = item.$treenode._initialSnapshot.on.replace("$", "");
       let labelKey = item.tooltiplabelkey;
-      if(labelKey){
-        label = item.annotationStore?.store?.task.dataObj[onKey][page-1][item.tooltiplabelkey];
+      if (labelKey) {
+        label =
+          item.annotationStore?.store?.task.dataObj[onKey][page - 1][labelKey];
       }
-    }
-    catch(e){
+    } catch (e) {
       console.log(e);
     }
     return label;
-  }
+  };
 
   useEffect(() => {
     setPageSize(getStoredPageSize("repeater", DEFAULT_PAGE_SIZE));
@@ -190,6 +203,34 @@ const HtxPagedView = observer(({ item }) => {
   }, [page]);
 
   useEffect(() => {
+    if (item.highlightannotationmark) {
+      const childrenImagesList = item.$treenode._initialSnapshot.children.map(
+        (view, index) => {
+          let imageName = "";
+          view.children.forEach(child => {
+            if (child.type === "image") {
+              imageName = child.name;
+            }
+          });
+          return {
+            name: imageName,
+            index: index
+          };
+        }
+      );
+      let annotationTargetNameList = item.annotation.results.map(
+        item => item.to_name?.name
+      );
+      const markList = childrenImagesList.map((image, index) => ({
+        name: image.name,
+        index: index,
+        haveAnnotation: annotationTargetNameList.includes(image.name)
+      }));
+      setMarks(markList);
+    }
+  }, [item.annotation.results, item.annotation.results.length]);
+
+  useEffect(() => {
     updateQueryPage(getQueryPage(), item.annotationStore?.store?.task.id);
     return () => {
       updateQueryPage(1, item.annotationStore?.store?.task.id);
@@ -219,11 +260,19 @@ const HtxPagedView = observer(({ item }) => {
             setPage(value);
           }}
           valueLabelDisplay="on"
-          marks
+          marks={item.highlightannotationmark ? marks.map(mark => ({
+            value: mark.index + 1,
+            label: mark.haveAnnotation ?"▲" : ""
+          })): true}
           valueLabelFormat={value => {
             return sliderLabel(value);
           }}
           sx={{
+            "--Slider-markSize": "4px",
+            "& .MuiSlider-markLabel": {
+              top: 'calc(50% - 6px +(max(var(--Slider-trackSize), var(--Slider-thumbSize)) / 2))',
+              color: "#ff5a5a"
+            },
             // Need both of the selectors to make it works on the server-side and client-side
             [`& [style*="left:0%"], & [style*="left: 0%"]`]: {
               [`&.${sliderClasses.markLabel}`]: {

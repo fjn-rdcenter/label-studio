@@ -35,7 +35,7 @@ import {
 } from "../../utils/feature-flags";
 import { Pagination } from "../../common/Pagination/Pagination";
 import { Image } from "./Image";
-import Slider from '@mui/joy/Slider';
+import Slider, { sliderClasses } from "@mui/joy/Slider";
 
 Konva.showWarnings = false;
 
@@ -859,6 +859,7 @@ export default observer(
       }
       
       setTimeout(() => {
+        // TODO: dont add hot keys if multi image is disabled
         hotkeys.addNamed("slice:next", () => {
           let totalPages = item.parsedValueList.length;
           let page = item.currentImage + 1;
@@ -967,9 +968,26 @@ export default observer(
 
       const imageIsLoaded = item.imageIsLoaded || !isFF(FF_LSDV_4583_6);
 
+
+      let annotationListForNowImageList =  []
+      let annotationTargetImageIndexList =  []
+      let marks =  true
+
+      if(item.highlightannotationmark === true && item.sliderpagination === true){ // image model have slider pagination and have enable multi image mode
+        // get annotation list for current image instance (current image is ImageModel object not the picture)
+        annotationListForNowImageList =  item.store.annotationStore.root.annotation.results.filter(result=>result.to_name.name === item.name);
+        // get list of image index which have annotation
+        annotationTargetImageIndexList =  annotationListForNowImageList.map((result)=>result.area.item_index)
+        // get list marks
+        marks =  item.parsedValueList.map((item,index)=>({value: index +1, label: annotationTargetImageIndexList.includes(index)?"▲":'' }))
+
+      }
+
+
+
       return (
         <ObjectTag item={item} className={wrapperClasses.join(" ")}>
-          {paginationEnabled && item.rangepagination === false ? (
+          {paginationEnabled && item.sliderpagination === false ? (
             <div className={styles.pagination}>
               <Pagination
                 size="small"
@@ -1095,7 +1113,7 @@ export default observer(
           </div>
 
           {toolsReady && imageIsLoaded && this.renderTools()}
-          {paginationEnabled && item.rangepagination === true ? (
+          {paginationEnabled && item.sliderpagination === true ? (
             <div
               className="lsf-toolbar lsf-toolbar_alignment_right"
               style={{ marginLeft: "20px", paddingBottom: "12px" }}
@@ -1111,7 +1129,7 @@ export default observer(
                     item.setCurrentImage(Math.round(value) - 1);
                   }}
                   valueLabelDisplay="on"
-                  marks
+                  marks={marks}
                   valueLabelFormat={value => {
                     return `Slice ${value}`;
                   }}
@@ -1119,6 +1137,14 @@ export default observer(
                     if(e.ctrlKey) {
                       e.target.blur();
                     }
+                  }}
+                  sx={{
+                    "--Slider-markSize": "4px",
+                    "& .MuiSlider-markLabel": {
+                      left: 'calc(50% + -4px + (max(var(--Slider-trackSize), var(--Slider-thumbSize)) / 2))',
+                      color: "#ff5a5a",
+                      transform: 'translateY(50%) rotate(-90deg)',
+                    },
                   }}
                 ></Slider>
               </div>
