@@ -853,7 +853,7 @@ export default observer(
 
       hotkeys.addDescription("shift", "Pan image");
 
-      if(item.keepcurrentimageindex){
+      if(item.keepcurrentimageindex && item.selectedRegions.length === 0){
         const { store } = item;
         item.setCurrentImage(store.task.currentImageIndex);
       }

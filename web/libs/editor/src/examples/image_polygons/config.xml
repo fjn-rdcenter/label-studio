@@ -9,7 +9,7 @@
   <Repeater on="$timelapse" indexFlag="{{idx}}" mode="pagination" tooltipLabelKey="time" highlightAnnotationMark="true">
 
     <Image name="timelapse_{{idx}}" valueList="$timelapse[{{idx}}].image_urls" showMousePos="true" zoom="true" maxWidth="auto" verticalAlignment="center" horizontalAlignment="center" defaultZoomScale="2" initZoomPositionToCenter="true"
-    sliderPagination="true" defaultPaginationValue="6" keepZoomingPosition="true" keepCurrentImageIndex="true" highlightAnnotationMark="false"
+    sliderPagination="true" defaultPaginationValue="6" keepZoomingPosition="true" keepCurrentImageIndex="true" highlightAnnotationMark="true"
     ></Image>
     <KeyPointLabels name="kp-{{idx}}" toName="timelapse_{{idx}}">
       <Label value="MicroPN" background="red" />
