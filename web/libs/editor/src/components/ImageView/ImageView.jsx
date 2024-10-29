@@ -845,6 +845,13 @@ export default observer(
       });
     }, 16);
 
+    onChangeCurrentImage = (value) => {
+      const { item } = this.props;
+      // clear all selected regions before moving to the previous image
+      item.store.annotationStore.selected.regionStore.clearSelection();
+      item.setCurrentImage(value);
+    };
+
     componentDidMount() {
       const { item } = this.props;
       window.addEventListener("resize", this.onResize);
@@ -865,9 +872,7 @@ export default observer(
           let page = item.currentImage + 1;
           if (page < totalPages) {
             page = page + 1;
-            // clear all selected regions before moving to the next image
-            item.store.annotationStore.selected.regionStore.clearSelection();
-            item.setCurrentImage(page - 1);
+            onChangeCurrentImage(page - 1);
           }
         });
 
@@ -876,8 +881,7 @@ export default observer(
           if (page > 1) {
             page = page - 1;
             // clear all selected regions before moving to the previous image
-            item.store.annotationStore.selected.regionStore.clearSelection();
-            item.setCurrentImage(page - 1);
+            onChangeCurrentImage(page - 1);
           }
         });
       });
@@ -1130,7 +1134,7 @@ export default observer(
                   step={1}
                   value={item.currentImage + 1}
                   onChange={(event, value) => {
-                    item.setCurrentImage(Math.round(value) - 1);
+                    onChangeCurrentImage(Math.round(value) - 1);
                   }}
                   valueLabelDisplay="on"
                   marks={marks}
