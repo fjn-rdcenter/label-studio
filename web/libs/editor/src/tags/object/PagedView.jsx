@@ -185,12 +185,16 @@ const HtxPagedView = observer(({ item }) => {
     setTimeout(() => {
       hotkeys.addNamed("frame:next-page", () => {
         if (page < totalPages) {
+          // clear all selected regions before moving to the next page
+          item.annotationStore.selected.regionStore.clearSelection();
           setPage(page + 1);
         }
       });
 
       hotkeys.addNamed("frame:previous-page", () => {
         if (page > 1) {
+          // clear all selected regions before moving to the previous page
+          item.annotationStore.selected.regionStore.clearSelection();
           setPage(page - 1);
         }
       });

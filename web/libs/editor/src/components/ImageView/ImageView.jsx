@@ -865,6 +865,8 @@ export default observer(
           let page = item.currentImage + 1;
           if (page < totalPages) {
             page = page + 1;
+            // clear all selected regions before moving to the next image
+            item.store.annotationStore.selected.regionStore.clearSelection();
             item.setCurrentImage(page - 1);
           }
         });
@@ -873,6 +875,8 @@ export default observer(
           let page = item.currentImage + 1;
           if (page > 1) {
             page = page - 1;
+            // clear all selected regions before moving to the previous image
+            item.store.annotationStore.selected.regionStore.clearSelection();
             item.setCurrentImage(page - 1);
           }
         });
