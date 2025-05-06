@@ -12,8 +12,8 @@ services:
       - LOCAL_FILES_SERVING_ENABLED=True # Must be set to True to use local files
       - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/files # Must be set to /label-studio/files to use local files
       - LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK=true
-      - LABEL_STUDIO_USERNAME=rdcenter@admin.com
-      - LABEL_STUDIO_PASSWORD=Research@2024
+      - LABEL_STUDIO_USERNAME=example@email.com
+      - LABEL_STUDIO_PASSWORD=Abc12345
       - DJANGO_DB=default
       - POSTGRE_NAME=labelstudio
       - POSTGRE_USER=postgres
