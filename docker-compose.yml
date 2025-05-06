@@ -1,65 +1,40 @@
-version: "3.9"
 services:
-  nginx:
-    build: .
-    image: heartexlabs/label-studio:latest
-    restart: unless-stopped
-    ports:
-      - "8080:8085"
-      - "8081:8086"
+  webapp:
+    image: label-studio:1.13.1.20241028.1.fjs
+    container_name: label_studio
     depends_on:
-      - app
+      - lb_backend
+    restart: always
     environment:
-      - LABEL_STUDIO_HOST=${LABEL_STUDIO_HOST:-}
-    #   Optional: Specify SSL termination certificate & key
-    #   Just drop your cert.pem and cert.key into folder 'deploy/nginx/certs'
-    #      - NGINX_SSL_CERT=/certs/cert.pem
-    #      - NGINX_SSL_CERT_KEY=/certs/cert.key
-    volumes:
-      - ./mydata:/label-studio/data:rw
-      - ./deploy/nginx/certs:/certs:ro
-    #   Optional: Override nginx default conf
-    #      - ./deploy/my.conf:/etc/nginx/nginx.conf
-    command: nginx
-
-  app:
-    stdin_open: true
-    tty: true
-    build: .
-    image: heartexlabs/label-studio:latest
-    restart: unless-stopped
-    expose:
-      - "8000"
-    depends_on:
-      - db
-    environment:
+      # - LABEL_STUDIO_HOST=https://aiservice.fujinet.net/lb
+      - COLLECT_ANALYTICS=False
+      - collect_analytics=0
+      - LOCAL_FILES_SERVING_ENABLED=True # Must be set to True to use local files
+      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/files # Must be set to /label-studio/files to use local files
+      - LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK=true
+      - LABEL_STUDIO_USERNAME=rdcenter@admin.com
+      - LABEL_STUDIO_PASSWORD=Research@2024
       - DJANGO_DB=default
-      - POSTGRE_NAME=postgres
+      - POSTGRE_NAME=labelstudio
       - POSTGRE_USER=postgres
-      - POSTGRE_PASSWORD=
+      - POSTGRE_PASSWORD=postgres
       - POSTGRE_PORT=5432
-      - POSTGRE_HOST=db
-      - LABEL_STUDIO_HOST=${LABEL_STUDIO_HOST:-}
-      - JSON_LOG=1
-    #      - LOG_LEVEL=DEBUG
+      - POSTGRE_HOST=lb_backend
+      - fflag_feat_front_lsdv_4583_multi_image_segmentation_short=1
+    ports:
+      - "8080:8080"
     volumes:
-      - ./mydata:/label-studio/data:rw
-    command: label-studio-uwsgi
-
-  db:
-    image: postgres:11.5
-    hostname: db
-    restart: unless-stopped
-    # Optional: Enable TLS on PostgreSQL
-    # Just drop your server.crt and server.key into folder 'deploy/pgsql/certs'
-    # NOTE: Both files must have permissions u=rw (0600) or less
-    #    command: >
-    #      -c ssl=on
-    #      -c ssl_cert_file=/var/lib/postgresql/certs/server.crt
-    #      -c ssl_key_file=/var/lib/postgresql/certs/server.key
+      - .data/label_studio_data:/label-studio/data # App data
+      # - /mnt/fujinetrd-data2/AI01/20241005_PN_300:/label-studio/files/20241005_PN_300 # Mount image data
+  lb_backend:
+    image: postgres:14
+    container_name: ls-db
+    restart: always
     environment:
-      - POSTGRES_HOST_AUTH_METHOD=trust
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=labelstudio
+    ports:
+      - "5432:5432"
     volumes:
-      - ${POSTGRES_DATA_DIR:-./postgres-data}:/var/lib/postgresql/data
-      - ./deploy/pgsql/certs:/var/lib/postgresql/certs:ro
-
+      - .data/postgres_data:/var/lib/postgresql/data
