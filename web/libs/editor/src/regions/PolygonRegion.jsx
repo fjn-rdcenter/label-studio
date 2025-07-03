@@ -119,6 +119,7 @@ const Model = types
         }
         if (!isFF(FF_DEV_2432)) self.closed = self.points.length > 2;
         self.checkSizes();
+        console.log(self);
       },
 
       /**
@@ -127,6 +128,7 @@ const Model = types
        * @param {boolean} val
        */
       setMouseOverStartPoint(value) {
+        console.log(value);
         self.mouseOverStartPoint = value;
       },
 

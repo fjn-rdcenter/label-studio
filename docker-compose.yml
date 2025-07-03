@@ -25,7 +25,7 @@ services:
       - "8080:8080"
     volumes:
       - .data/label_studio_data:/label-studio/data # App data
-      # - /mnt/fujinetrd-data2/AI01/20241005_PN_300:/label-studio/files/20241005_PN_300 # Mount image data
+      - .data/imagedata/AI01:/label-studio/files/AI01 # Mount image data
   lb_backend:
     image: postgres:14
     container_name: ls-db

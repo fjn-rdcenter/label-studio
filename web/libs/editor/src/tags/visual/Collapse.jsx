@@ -48,6 +48,7 @@ const PanelModel = types.model({
     "rectanglelabels",
     "ellipselabels",
     "polygonlabels",
+    "circlebasedpolygonlabels",
     "keypointlabels",
     "brushlabels",
     "hypertextlabels",

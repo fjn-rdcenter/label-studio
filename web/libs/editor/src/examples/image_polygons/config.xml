@@ -6,14 +6,31 @@
   </PolygonLabels>
 </View> -->
 <View>
-  <Repeater on="$timelapse" indexFlag="{{idx}}" mode="pagination" tooltipLabelKey="time" highlightAnnotationMark="true">
+  <Repeater on="$timelapse" indexFlag="{{idx}}" mode="pagination" 
+            tooltipLabelKey="time" highlightAnnotationMark="true">
+    <Image name="timelapse_{{idx}}" valueList="$timelapse[{{idx}}].image_urls" 
+           showMousePos="true" zoom="true" maxWidth="auto" 
+           verticalAlignment="center" horizontalAlignment="center" 
+           defaultZoomScale="3" initZoomPositionToCenter="true"
+           keepZoomingPosition="true"
+    	   keepCurrentImageIndex="true"
+    		sliderPagination="true" defaultPaginationValue="5"
+            highlightAnnotationMark="true"></Image>
+    <View>
+      <Header value="Use this label to mark the cells (Ellipse segmentation mask)" />
+      <EllipseLabels name="el-{{idx}}" toName="timelapse_{{idx}}">
+        <Label value="Cell Ellipse" background="green" hotkey="w" />
+      </EllipseLabels>
+    </View>
+    
+    
+    <View>
+      <Header value="Use this label to mark the borderline of the cells" />
+      <CircleBasedPolygonLabels name="pl-{{idx}}" toName="timelapse_{{idx}}">
+        <Label value="Cell Borderline" background="blue" hotkey="q"/>
+      </CircleBasedPolygonLabels>
+    </View>
 
-    <Image name="timelapse_{{idx}}" valueList="$timelapse[{{idx}}].image_urls" showMousePos="true" zoom="true" maxWidth="auto" verticalAlignment="center" horizontalAlignment="center" defaultZoomScale="2" initZoomPositionToCenter="true"
-    sliderPagination="true" defaultPaginationValue="6" keepZoomingPosition="true" keepCurrentImageIndex="true" highlightAnnotationMark="true"
-    ></Image>
-    <KeyPointLabels name="kp-{{idx}}" toName="timelapse_{{idx}}">
-      <Label value="MicroPN" background="red" />
-    </KeyPointLabels>
   </Repeater>
 </View>
 
