@@ -872,7 +872,7 @@ export default observer(
           let page = item.currentImage + 1;
           if (page < totalPages) {
             page = page + 1;
-            onChangeCurrentImage(page - 1);
+            this.onChangeCurrentImage(page - 1);
           }
         });
 
@@ -881,7 +881,7 @@ export default observer(
           if (page > 1) {
             page = page - 1;
             // clear all selected regions before moving to the previous image
-            onChangeCurrentImage(page - 1);
+            this.onChangeCurrentImage(page - 1);
           }
         });
       });
@@ -1134,7 +1134,7 @@ export default observer(
                   step={1}
                   value={item.currentImage + 1}
                   onChange={(event, value) => {
-                    onChangeCurrentImage(Math.round(value) - 1);
+                    this.onChangeCurrentImage(Math.round(value) - 1);
                   }}
                   valueLabelDisplay="on"
                   marks={marks}
