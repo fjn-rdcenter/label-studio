@@ -5,6 +5,7 @@ import { Brush } from "./Brush";
 import { Erase } from "./Erase";
 import { KeyPoint } from "./KeyPoint";
 import { Polygon } from "./Polygon";
+import { EllipseBasedPolygon } from "./EllipseBasedPolygon";
 import { Rect, Rect3Point } from "./Rect";
 import { Ellipse } from "./Ellipse";
 import { Zoom } from "./Zoom";
@@ -19,6 +20,7 @@ export {
   Erase,
   KeyPoint,
   Polygon,
+  EllipseBasedPolygon,
   Rect,
   Rect3Point,
   Ellipse,

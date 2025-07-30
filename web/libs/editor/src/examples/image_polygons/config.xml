@@ -26,9 +26,23 @@
     
     <View>
       <Header value="Use this label to mark the borderline of the cells" />
-      <CircleBasedPolygonLabels name="pl-{{idx}}" toName="timelapse_{{idx}}">
-        <Label value="Cell Borderline" background="blue" hotkey="q"/>
-      </CircleBasedPolygonLabels>
+      <EllipseBasedPolygonLabels name="cbpl-{{idx}}" toName="timelapse_{{idx}}">
+        <Label value="Ellipse Based Borderline" background="blue" hotkey="q"/>
+      </EllipseBasedPolygonLabels>
+    </View>
+
+    <View>
+      <BrushLabels name="bl-{{idx}}" toName="timelapse_{{idx}}">
+        <Label value="Person" />
+        <Label value="Animal" />
+      </BrushLabels>
+    </View>
+
+    <View>
+      <Header value="Use this label to mark the borderline of the cells" />
+      <PolygonLabels name="pl-{{idx}}" toName="timelapse_{{idx}}">
+        <Label value="Borderline" background="blue" hotkey="t"/>
+      </PolygonLabels>
     </View>
 
   </Repeater>

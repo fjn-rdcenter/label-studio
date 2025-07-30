@@ -34,7 +34,7 @@ const _Tool = types
       get tagTypes() {
         return {
           stateTypes: "polygonlabels",
-          controlTagTypes: ["polygonlabels", "polygon", "circlebasedpolygonlabels"],
+          controlTagTypes: ["polygonlabels", "polygon"],
         };
       },
 

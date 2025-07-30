@@ -67,7 +67,7 @@ const Model = types.model({
     "rectanglelabels",
     "ellipselabels",
     "polygonlabels",
-    "circlebasedpolygonlabels",
+    "ellipsebasedpolygonlabels",
     "keypointlabels",
     "brushlabels",
     "hypertextlabels",

@@ -1420,147 +1420,58 @@
         "id": 2,
         "result": [
           {
-            "original_width": 964,
-            "original_height": 1288,
-            "image_rotation": 0,
-            "item_index": 4,
+            "id": "EErcV_BgdO",
+            "type": "ellipsebasedpolygonlabels",
             "value": {
-              "x": 50.9212730318258,
-              "y": 48.80952380952381,
-              "width": 0.33500837520938026,
-              "keypointlabels": [
-                "MicroPN"
+              "ellipsebasedpolygonlabels": [
+                "Ellipse Based Borderline"
               ]
             },
-            "id": "3zG13MY1Ce",
-            "from_name": "kp-2",
-            "to_name": "timelapse_2",
-            "type": "keypointlabels",
-            "origin": "manual"
+            "origin": "manual",
+            "to_name": "timelapse_0",
+            "from_name": "cbpl-0",
+            "item_index": 5
           },
           {
-            "original_width": 964,
-            "original_height": 1288,
-            "image_rotation": 0,
-            "item_index": 4,
+            "id": "V3vp85_QT3",
+            "type": "polygonlabels",
             "value": {
-              "x": 54.52261306532663,
-              "y": 44.3609022556391,
-              "width": 0.33500837520938026,
-              "keypointlabels": [
-                "MicroPN"
+              "closed": true,
+              "points": [
+                [
+                  46.485943775100395,
+                  51.127819548872175
+                ],
+                [
+                  54.71887550200803,
+                  46.91729323308271
+                ],
+                [
+                  59.002677376171356,
+                  52.48120300751879
+                ]
+              ],
+              "polygonlabels": [
+                "Borderline"
               ]
             },
-            "id": "X6auoY89SV",
-            "from_name": "kp-3",
-            "to_name": "timelapse_3",
-            "type": "keypointlabels",
-            "origin": "manual"
-          },
-          {
-            "original_width": 964,
-            "original_height": 1288,
+            "origin": "manual",
+            "to_name": "timelapse_0",
+            "from_name": "pl-0",
+            "item_index": 5,
             "image_rotation": 0,
-            "item_index": 4,
-            "value": {
-              "x": 52.596314907872696,
-              "y": 45.363408521303256,
-              "width": 0.33500837520938026,
-              "keypointlabels": [
-                "MicroPN"
-              ]
-            },
-            "id": "tgwBik1f2k",
-            "from_name": "kp-22",
-            "to_name": "timelapse_22",
-            "type": "keypointlabels",
-            "origin": "manual"
-          },
-          {
             "original_width": 964,
-            "original_height": 1288,
-            "image_rotation": 0,
-            "item_index": 4,
-            "value": {
-              "x": 53.18257956448911,
-              "y": 45.11278195488722,
-              "width": 0.33500837520938026,
-              "keypointlabels": [
-                "MicroPN"
-              ]
-            },
-            "id": "KTGBO2XWEs",
-            "from_name": "kp-23",
-            "to_name": "timelapse_23",
-            "type": "keypointlabels",
-            "origin": "manual"
-          },
-          {
-            "original_width": 964,
-            "original_height": 1288,
-            "image_rotation": 0,
-            "item_index": 4,
-            "value": {
-              "x": 52.34505862646566,
-              "y": 46.05263157894737,
-              "width": 0.33500837520938026,
-              "keypointlabels": [
-                "MicroPN"
-              ]
-            },
-            "id": "T_IDxqPsfu",
-            "from_name": "kp-45",
-            "to_name": "timelapse_45",
-            "type": "keypointlabels",
-            "origin": "manual"
-          },
-          {
-            "original_width": 964,
-            "original_height": 1288,
-            "image_rotation": 0,
-            "item_index": 7,
-            "value": {
-              "x": 50.58626465661642,
-              "y": 45.802005012531325,
-              "width": 0.33500837520938026,
-              "keypointlabels": [
-                "MicroPN"
-              ]
-            },
-            "id": "hhmzAbxaM5",
-            "from_name": "kp-54",
-            "to_name": "timelapse_54",
-            "type": "keypointlabels",
-            "origin": "manual"
-          },
-          {
-            "original_width": 964,
-            "original_height": 1288,
-            "image_rotation": 0,
-            "item_index": 6,
-            "value": {
-              "x": 50.083752093802346,
-              "y": 47.4937343358396,
-              "width": 0.33500837520938026,
-              "keypointlabels": [
-                "MicroPN"
-              ]
-            },
-            "id": "GcWrZYqTUM",
-            "from_name": "kp-60",
-            "to_name": "timelapse_60",
-            "type": "keypointlabels",
-            "origin": "manual"
+            "original_height": 1288
           }
         ],
-        "created_username": " son-tm@fujinet.net, 1",
+        "created_username": " example@email.com, 1",
         "created_ago": "54 minutes",
         "completed_by": {
           "id": 1,
           "first_name": "",
           "last_name": "",
           "avatar": null,
-          "email": "son-tm@fujinet.net",
+          "email": "example@email.com",
           "initials": "so"
         },
         "was_cancelled": false,

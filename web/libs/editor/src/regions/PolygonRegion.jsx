@@ -119,7 +119,6 @@ const Model = types
         }
         if (!isFF(FF_DEV_2432)) self.closed = self.points.length > 2;
         self.checkSizes();
-        console.log(self);
       },
 
       /**
@@ -128,7 +127,6 @@ const Model = types
        * @param {boolean} val
        */
       setMouseOverStartPoint(value) {
-        console.log(value);
         self.mouseOverStartPoint = value;
       },
 
@@ -310,7 +308,6 @@ const Model = types
        */
       serialize() {
         if (!isFF(FF_DEV_2432) && self.points.length < 3) return null;
-
         const value = {
           points: isFF(FF_DEV_3793)
             ? self.points.map((p) => [p.x, p.y])
@@ -460,7 +457,7 @@ const Poly = memo(
 
 /**
  * Line between 2 points
- */
+ */ 
 const Edge = observer(({ name, item, idx, p1, p2, closed, regionStyles }) => {
   const insertIdx = idx + 1; // idx1 + 1 or idx2
   const flattenedPoints = [p1.canvasX, p1.canvasY, p2.canvasX, p2.canvasY];

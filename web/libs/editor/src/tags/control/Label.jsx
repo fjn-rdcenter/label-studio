@@ -79,7 +79,7 @@ const Model = types
       "EllipseLabels",
       "RectangleLabels",
       "PolygonLabels",
-      "CircleBasedPolygonLabels",
+      "EllipseBasedPolygonLabels",
       "KeyPointLabels",
       "BrushLabels",
       "HyperTextLabels",

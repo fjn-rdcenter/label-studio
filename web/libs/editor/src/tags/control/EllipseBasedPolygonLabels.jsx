@@ -7,26 +7,26 @@ import Registry from "../../core/Registry";
 import SelectedModelMixin from "../../mixins/SelectedModel";
 import Types from "../../core/Types";
 import { HtxLabels, LabelsModel } from "./Labels/Labels";
-import { PolygonModel } from "./Polygon";
+import { EllipseBasedPolygonModel } from "./EllipseBasedPolygon";
 import ControlBase from "./Base";
 
 /**
- * The `CircleBasedPolygonLabels` tag is used to create labeled polygons. Use to apply labels to polygons in semantic segmentation tasks.
+ * The `EllipseBasedPolygonLabels` tag is used to create labeled polygons from ellipse. Use to apply labels to polygons in semantic segmentation tasks.
  *
  * Use with the following data types: image.
  * @example
  * <!--Basic labeling configuration for polygonal semantic segmentation of images -->
  * <View>
  *   <Image name="image" value="$image" />
- *   <CircleBasedPolygonLabels name="labels" toName="image">
+ *   <EllipseBasedPolygonLabels name="labels" toName="image">
  *     <Label value="Car" />
  *     <Label value="Sign" />
- *   </CircleBasedPolygonLabels>
+ *   </EllipseBasedPolygonLabels>
  * </View>
- * @name CircleBasedPolygonLabels
+ * @name EllipseBasedPolygonLabels
  * @regions PolygonRegion
  * @meta_title Polygon Label Tag for Labeling Polygons in Images
- * @meta_description Customize Label Studio with the CircleBasedPolygonLabels tag and label polygons in images for semantic segmentation machine learning and data science projects.
+ * @meta_description Customize Label Studio with the EllipseBasedPolygonLabels tag and label polygons in images for semantic segmentation machine learning and data science projects.
  * @param {string} name                             - Name of tag
  * @param {string} toName                           - Name of image to label
  * @param {single|multiple=} [choice=single]        - Configure whether you can select one or multiple labels
@@ -45,8 +45,8 @@ const Validation = types.model({
   controlledTags: Types.unionTag(["Image"]),
 });
 
-const ModelAttrs = types.model("CircleBasedPolygonLabelsModel", {
-  type: "circlebasedpolygonlabels",
+const ModelAttrs = types.model("EllipseBasedPolygonLabelsModel", {
+  type: "ellipsebasedpolygonlabels",
   children: Types.unionArray(["label", "header", "view", "hypertext"]),
 });
 
@@ -54,18 +54,18 @@ const Composition = types.compose(
   ControlBase,
   LabelsModel,
   ModelAttrs,
-  PolygonModel,
+  EllipseBasedPolygonModel,
   Validation,
   LabelMixin,
   SelectedModelMixin.props({ _child: "LabelModel" }),
 );
 
-const CircleBasedPolygonLabelsModel = types.compose("CircleBasedPolygonLabelsModel", Composition);
+const EllipseBasedPolygonLabelsModel = types.compose("EllipseBasedPolygonLabelsModel", Composition);
 
 const HtxPolygonLabels = observer(({ item }) => {
   return <HtxLabels item={item} />;
 });
 
-Registry.addTag("circlebasedpolygonlabels", CircleBasedPolygonLabelsModel, HtxPolygonLabels);
+Registry.addTag("ellipsebasedpolygonlabels", EllipseBasedPolygonLabelsModel, HtxPolygonLabels);
 
-export { HtxPolygonLabels, CircleBasedPolygonLabelsModel };
+export { HtxPolygonLabels, EllipseBasedPolygonLabelsModel };
