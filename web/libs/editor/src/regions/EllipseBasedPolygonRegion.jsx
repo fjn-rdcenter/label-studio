@@ -55,7 +55,6 @@ const generatePointsFromEllipse = (canvasX, canvasY, canvasRadiusX, canvasRadius
     const yCoord = canvasY + canvasRadiusY * Math.sin(rad);
     points.push({ x: xCoord, y: yCoord });
   }
-  console.log("points",points);
   if(coordstype === "px"){
     return points;
   }
@@ -133,7 +132,6 @@ const EllipseRegionAbsoluteCoordsDEV3793 = types
       return self.setPosition(x, y, radiusX, radiusY, rotation);
     },
     generatePolygonPointsFromEllipse() {
-      console.log('generatePointsFromEllipse in dev3793');
       const points = generatePointsFromEllipse(self.canvasX, self.canvasY, self.canvasRadiusX, self.canvasRadiusY, self.parent?.stageWidth, self.parent?.stageHeight, self.coordstype);
       self.polygonPoints = points.map((p, index) => ({
         id: guidGenerator(),
@@ -143,7 +141,6 @@ const EllipseRegionAbsoluteCoordsDEV3793 = types
         style: self.pointStyle,
         index
       }));
-      console.log(self.polygonPoints);
       return self.polygonPoints;
     },
     updateImageSize(wp, hp, sw, sh) {
@@ -349,7 +346,6 @@ const Model = types
       self.generatePolygonPointsFromEllipse();
     },
     generatePolygonPointsFromEllipse() {
-      console.log('generatePolygonPointsFromEllipse normal');
       const points = generatePointsFromEllipse(self.canvasX, self.canvasY, self.canvasRadiusX, self.canvasRadiusY, self.parent?.stageWidth, self.parent?.stageHeight, self.coordstype);
       self.polygonPoints = points.map((p, index) => ({
         id: guidGenerator(),
@@ -359,7 +355,6 @@ const Model = types
         style: self.pointStyle,
         index
       }));
-      console.log(self.polygonPoints);
       return self.polygonPoints;
     },
 
@@ -897,7 +892,6 @@ const HtxEllipseBasedPolygonView = ({ item, setShapeRef }) => {
       }
     };
   }, [item.bboxCoords.left, item.bboxCoords.top]);
-  console.log(item);
   if (!item.parent) return null;
   if (!item.inViewPort) return null;
 
@@ -918,7 +912,7 @@ const HtxEllipseBasedPolygonView = ({ item, setShapeRef }) => {
         shadowBlur={0}
         scaleX={item.scaleX}
         scaleY={item.scaleY}
-        opacity={item.isDrawing ? 1 : 1}
+        opacity={item.isDrawing ? 1 : 0}
         rotation={item.rotation}
         name={`${item.id} _transformable`}
         onTransform={({ target }) => {
@@ -981,7 +975,6 @@ const HtxEllipseBasedPolygonView = ({ item, setShapeRef }) => {
           }
         }}
         onClick={e => {
-          console.log(item);
           if (item.parent.getSkipInteractions()) return;
 
           if (store.annotationStore.selected.relationMode) {
