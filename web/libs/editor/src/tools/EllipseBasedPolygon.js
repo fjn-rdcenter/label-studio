@@ -37,7 +37,7 @@ const _Tool = types
       },
 
       get viewTooltip() {
-        return "Polygon region";
+        return "Ellipse Based Polygon region";
       },
       get iconComponent() {
         return self.dynamic ? NodeViews.EllipseBasedPolygonRegionModel.altIcon : NodeViews.EllipseBasedPolygonRegionModel.icon;

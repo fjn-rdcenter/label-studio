@@ -47,7 +47,10 @@ const generatePointsFromEllipse = (canvasX, canvasY, canvasRadiusX, canvasRadius
   const points = [];
   const gapPoint = 25; // Distance between points
   const circumference = ellipsePerimeterRamanujan(canvasRadiusX, canvasRadiusY);
-  const numberOfPoints = Math.ceil(circumference / gapPoint);
+  let numberOfPoints = Math.ceil(circumference / gapPoint);
+  if (numberOfPoints < 12){
+    numberOfPoints = 12; // Minimum number of points to create a smooth ellipse
+  }
   const step = 360 / numberOfPoints;
   for (let angle = 0; angle < 360; angle += step) {
     const rad = (angle * Math.PI) / 180;
@@ -64,7 +67,7 @@ const generatePointsFromEllipse = (canvasX, canvasY, canvasRadiusX, canvasRadius
   }));
 }
 
-const EllipseRegionAbsoluteCoordsDEV3793 = types
+const EllipseBasedPolygonRegionAbsoluteCoordsDEV3793 = types
   .model({
     coordstype: types.optional(types.enumeration(["px", "perc"]), "perc")
   })
@@ -512,7 +515,7 @@ const Model = types
      */
 
     /**
-     * @return {EllipseRegionResult}
+     * @return {EllipseBasedPolygonRegionResult}
      */
     serialize() {
       const value = {
@@ -596,7 +599,7 @@ const EllipseBasedPolygonRegionModel = types.compose(
   KonvaRegionMixin,
   EditableRegion,
   Model,
-  ...(isFF(FF_DEV_3793) ? [] : [EllipseRegionAbsoluteCoordsDEV3793])
+  ...(isFF(FF_DEV_3793) ? [] : [EllipseBasedPolygonRegionAbsoluteCoordsDEV3793])
 );
 
 /**
