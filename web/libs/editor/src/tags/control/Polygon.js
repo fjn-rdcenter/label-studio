@@ -63,8 +63,8 @@ const Model = types
     // regions: types.array(RectRegionModel),
     _value: types.optional(types.string, ""),
   })
-  .volatile(() => ({
-    toolNames: ["Polygon"],
+  .volatile((self) => ({
+    toolNames: self.smart ? ["Polygon", "OpenCVPolygon"] : ["Polygon"],
   }))
   .actions((self) => {
     return {

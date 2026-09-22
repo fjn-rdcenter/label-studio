@@ -1,0 +1,18 @@
+services:
+  opencv-segmentation:
+    build:
+      context: ./integrations/opencv-segmentation
+    restart: unless-stopped
+    env_file:
+      - path: ./.data/label_studio_data/opencv.env
+        required: false
+    environment:
+      LABEL_STUDIO_URL: http://webapp:8080
+      ALLOWED_IMAGE_HOSTS: webapp,${OPENCV_ALLOWED_IMAGE_HOSTS:-}
+      DEFAULT_RING_WIDTH: ${OPENCV_RING_WIDTH:-4}
+      IMAGE_FETCH_TIMEOUT: ${OPENCV_IMAGE_FETCH_TIMEOUT:-45}
+      MAX_IMAGE_BYTES: ${OPENCV_MAX_IMAGE_BYTES:-20971520}
+      MAX_IMAGE_PIXELS: ${OPENCV_MAX_IMAGE_PIXELS:-40000000}
+      WEB_CONCURRENCY: ${OPENCV_WEB_CONCURRENCY:-2}
+    expose:
+      - "9090"

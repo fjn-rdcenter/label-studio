@@ -21,6 +21,10 @@ services:
       - POSTGRE_PORT=5432
       - POSTGRE_HOST=lb_backend
       - fflag_feat_front_lsdv_4583_multi_image_segmentation_short=1
+      # --- Proxy ảnh từ production khi chạy local ---
+      # Lấy token tại: https://aiservice.fujinet.net/lb -> Account & Settings -> Access Token
+      - PROXY_LOCAL_FILES_URL=https://aiservice.fujinet.net/lb
+      - PROXY_LOCAL_FILES_TOKEN=YOUR_ACCESS_TOKEN_HERE
     ports:
       - "8080:8080"
     volumes:

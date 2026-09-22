@@ -10,6 +10,12 @@ import {
 } from "../constants";
 import { Comments, History, Info, Relations } from "../DetailsPanel/DetailsPanel";
 import { OutlinerComponent } from "../OutlinerPanel/OutlinerPanel";
+import {
+  ClinicalPanel,
+  DevelopmentDayPanel,
+  EventPanel,
+  ObjectPanel,
+} from "../../EmbryoPanel/EmbryoPanel";
 import type { PanelProps } from "../PanelBase";
 import {
   emptyPanel,
@@ -125,6 +131,10 @@ export const panelComponents: { [key: string]: FC<PanelProps> } = {
   relations: Relations as FC<PanelProps>,
   comments: Comments as FC<PanelProps>,
   info: Info as FC<PanelProps>,
+  "development-day": DevelopmentDayPanel as FC<PanelProps>,
+  object: ObjectPanel as FC<PanelProps>,
+  event: EventPanel as FC<PanelProps>,
+  clinical: ClinicalPanel as FC<PanelProps>,
 };
 
 const panelViews = [
@@ -160,6 +170,50 @@ const panelViews = [
     active: false,
   },
 ];
+
+const embryoPanelDefault: Record<string, PanelBBox> = {
+  "development-day": {
+    order: 3,
+    top: 0,
+    left: 0,
+    relativeLeft: 0,
+    relativeTop: 0,
+    zIndex: 10,
+    width: DEFAULT_PANEL_WIDTH,
+    height: DEFAULT_PANEL_HEIGHT,
+    visible: true,
+    detached: false,
+    alignment: Side.right,
+    maxHeight: DEFAULT_PANEL_MAX_HEIGHT,
+    panelViews: [
+      {
+        name: "development-day",
+        title: "Development Day",
+        component: panelComponents["development-day"],
+        active: true,
+      },
+    ],
+  },
+  "object-event-clinical": {
+    order: 4,
+    top: 0,
+    left: 0,
+    relativeLeft: 0,
+    relativeTop: 0,
+    zIndex: 10,
+    width: DEFAULT_PANEL_WIDTH,
+    height: DEFAULT_PANEL_HEIGHT,
+    visible: true,
+    detached: false,
+    alignment: Side.right,
+    maxHeight: DEFAULT_PANEL_MAX_HEIGHT,
+    panelViews: [
+      { name: "object", title: "Object", component: panelComponents.object, active: true },
+      { name: "event", title: "Event", component: panelComponents.event, active: false },
+      { name: "clinical", title: "Clinical", component: panelComponents.clinical, active: false },
+    ],
+  },
+};
 
 export const enterprisePanelDefault: Record<string, PanelBBox> = {
   "info-comments-history": {
@@ -265,7 +319,7 @@ export const checkCollapsedPanelsHaveData = (collapsedSide: PanelsCollapsed, pan
   return collapsedCopy;
 };
 
-export const restorePanel = (showComments: boolean): StoredPanelState => {
+export const restorePanel = (showComments: boolean, showEmbryo = false): StoredPanelState => {
   const previousState = window.localStorage.getItem("panelState");
   const parsed: StoredPanelState | null = previousState && JSON.parse(previousState);
   const panelData = parsed && parsed.panelData;
@@ -273,12 +327,13 @@ export const restorePanel = (showComments: boolean): StoredPanelState => {
   const collapsedSide = parsed?.collapsedSide ?? defaultCollapsedSide;
   const allTabs = panelData && Object.values(panelData).flatMap((panel) => panel.panelViews);
   // don't use comments tab anywhere if it's disabled
-  const countOfAllAvailableTabs = panelViews.length - (showComments ? 0 : 1);
+  const countOfAllAvailableTabs = panelViews.length - (showComments ? 0 : 1) + (showEmbryo ? 4 : 0);
 
   // stored state can have less tabs than available, for example if it was stored on old version
   // or if comments were enabled; then return default state
   if (!allTabs || allTabs.length !== countOfAllAvailableTabs) {
-    const defaultPanel = showComments ? enterprisePanelDefault : openSourcePanelDefault;
+    const standardPanel = showComments ? enterprisePanelDefault : openSourcePanelDefault;
+    const defaultPanel = showEmbryo ? { ...standardPanel, ...embryoPanelDefault } : standardPanel;
 
     return { panelData: defaultPanel, collapsedSide: defaultCollapsedSide };
   }

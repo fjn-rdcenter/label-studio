@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { observer } from "mobx-react";
 import { types } from "mobx-state-tree";
 
@@ -10,6 +10,7 @@ import { Hotkey } from "../../core/Hotkey";
 import { FF_DEV_1170, isFF } from "../../utils/feature-flags";
 import { AnnotationMixin } from "../../mixins/AnnotationMixin";
 import Slider, { sliderClasses } from "@mui/joy/Slider";
+import { setEmbryoNavigation } from "../../components/EmbryoPanel/EmbryoNavigation";
 
 const Model = types.model({
   id: types.identifier,
@@ -93,6 +94,19 @@ const setStoredPageSize = (name, pageSize) => {
   localStorage.setItem(`pages:${name}`, pageSize.toString());
 };
 
+const normalizeDay = (frame) => {
+  const explicitDay = frame?.day ?? frame?.Day ?? frame?.day_index;
+  const parsedExplicitDay = Number.parseInt(explicitDay, 10);
+
+  if (Number.isFinite(parsedExplicitDay)) return Math.min(Math.max(parsedExplicitDay, 0), 6);
+
+  const timeParts = String(frame?.time ?? "").split(":").map(Number);
+  if (timeParts.length >= 4 && Number.isFinite(timeParts[0])) return Math.min(Math.max(timeParts[0], 0), 6);
+  if (timeParts.length === 3 && Number.isFinite(timeParts[0])) return Math.min(Math.floor(timeParts[0] / 24), 6);
+
+  return 0;
+};
+
 const getQueryPage = () => {
   const params = new URLSearchParams(window.location.search);
   const page = params.get(PAGE_QUERY_PARAM);
@@ -140,6 +154,10 @@ const HtxPagedView = observer(({ item }) => {
   const [page, _setPage] = useState(getQueryPage);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [marks, setMarks] = useState([]);
+  const dataKey = item.$treenode._initialSnapshot.on.replace("$", "");
+  const frameData = item.annotationStore?.store?.task.dataObj?.[dataKey] || [];
+  const frameDays = item.children.map((_, index) => normalizeDay(frameData[index]));
+  const [day, _setDay] = useState(() => frameDays[getQueryPage() - 1] ?? 0);
 
   const setPage = useCallback((_page) => {
     _setPage(_page);
@@ -147,6 +165,29 @@ const HtxPagedView = observer(({ item }) => {
   }, []);
 
   const totalPages = Math.ceil(item.children.length / pageSize);
+  const dayPages = useMemo(() => {
+    const pages = [];
+
+    for (let index = 0; index < totalPages; index++) {
+      if (frameDays[index * pageSize] === day) pages.push(index + 1);
+    }
+    return pages;
+  }, [day, frameDays.join(","), pageSize, totalPages]);
+  const sliderPage = Math.max(dayPages.indexOf(page) + 1, 1);
+  const setDay = useCallback(nextDay => {
+    const nextPage = frameDays.findIndex(frameDay => frameDay === nextDay) + 1;
+
+    if (nextPage > 0) {
+      _setDay(nextDay);
+      setPage(Math.ceil(nextPage / pageSize));
+    }
+  }, [frameDays.join(","), pageSize, setPage]);
+  const setFrame = useCallback(frameIndex => {
+    if (frameIndex < 0 || frameIndex >= frameDays.length) return;
+
+    _setDay(frameDays[frameIndex] ?? 0);
+    setPage(Math.floor(frameIndex / pageSize) + 1);
+  }, [frameDays.join(","), pageSize, setPage]);
   const sliderLabel = page => {
     let label = `Frame ${page}`;
     try {
@@ -172,6 +213,7 @@ const HtxPagedView = observer(({ item }) => {
     if (last) {
       const _pageNumber = Number.parseFloat(last.object.name.split("_")[1]) + 1;
 
+      _setDay(frameDays[_pageNumber - 1] ?? 0);
       setPage(Math.ceil(_pageNumber / pageSize));
     }
   }, [item.annotation.lastSelectedRegion]);
@@ -185,18 +227,20 @@ const HtxPagedView = observer(({ item }) => {
 
     setTimeout(() => {
       hotkeys.addNamed("frame:next-page", () => {
-        if (page < totalPages) {
+        const currentIndex = dayPages.indexOf(page);
+        if (currentIndex < dayPages.length - 1) {
           // clear all selected regions before moving to the next page
           item.annotationStore.selected.regionStore.clearSelection();
-          setPage(page + 1);
+          setPage(dayPages[currentIndex + 1]);
         }
       });
 
       hotkeys.addNamed("frame:previous-page", () => {
-        if (page > 1) {
+        const currentIndex = dayPages.indexOf(page);
+        if (currentIndex > 0) {
           // clear all selected regions before moving to the previous page
           item.annotationStore.selected.regionStore.clearSelection();
-          setPage(page - 1);
+          setPage(dayPages[currentIndex - 1]);
         }
       });
     });
@@ -205,7 +249,7 @@ const HtxPagedView = observer(({ item }) => {
       hotkeys.removeNamed("frame:next-page");
       hotkeys.removeNamed("frame:previous-page");
     };
-  }, [page]);
+  }, [page, dayPages.join(",")]);
 
   useEffect(() => {
     if (item.highlightannotationmark) {
@@ -252,25 +296,38 @@ const HtxPagedView = observer(({ item }) => {
     return pageView;
   }, [page, pageSize]);
 
+  useEffect(() => {
+    setEmbryoNavigation({
+      availableDays: Array.from(new Set(frameDays)),
+      day,
+      setDay,
+      setFrame,
+      frameLabel: sliderLabel(page),
+      page,
+    });
+  }, [day, frameDays.join(","), page, setDay, setFrame]);
+
   return (
     <div>
       <div style={{ width: "100%", padding: '17px 21px 0px 21px', background:'white', position:'sticky', top: 0,zIndex:10, boxShadow:"0px 0px 0px 1px rgba(0, 0, 0, 0.05), 0px 5px 10px rgba(0, 0, 0, 0.1)" }}>
         <Slider
           min={1}
-          max={totalPages}
+          max={Math.max(dayPages.length, 1)}
           step={1}
-          value={page}
+          value={sliderPage}
+          disabled={dayPages.length === 0}
           onChange={(event, value) => {
             item.annotation.unselectAll();
-            setPage(value);
+            const selectedPage = dayPages[value - 1];
+            if (selectedPage) setPage(selectedPage);
           }}
           valueLabelDisplay="on"
-          marks={item.highlightannotationmark ? marks.map(mark => ({
-            value: mark.index + 1,
-            label: mark.haveAnnotation ?"▲" : ""
+          marks={item.highlightannotationmark ? dayPages.map((absolutePage, index) => ({
+            value: index + 1,
+            label: marks[absolutePage - 1]?.haveAnnotation ?"▲" : ""
           })): true}
           valueLabelFormat={value => {
-            return sliderLabel(value);
+            return sliderLabel(dayPages[value - 1] || page);
           }}
           sx={{
             "--Slider-markSize": "4px",

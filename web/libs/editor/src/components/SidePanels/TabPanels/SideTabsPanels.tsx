@@ -69,7 +69,9 @@ const SideTabsPanelsComponent: FC<SidePanelsProps> = ({
   const [initialized, setInitialized] = useState(false);
   const rootRef = useRef<HTMLDivElement>();
   const [snap, setSnap] = useState<DropSide | Side | undefined>();
-  const initialState = useMemo(() => restorePanel(showComments), [showComments]);
+  const timelapse = currentEntity.store?.task?.dataObj?.timelapse;
+  const embryoEnabled = Array.isArray(timelapse) && timelapse.length > 0;
+  const initialState = useMemo(() => restorePanel(showComments, embryoEnabled), [showComments, embryoEnabled]);
   const [panelData, setPanelData] = useState<Record<string, PanelBBox>>(initialState.panelData);
   const [collapsedSide, setCollapsedSide] = useState(initialState.collapsedSide);
   const [breakPointActiveTab, setBreakPointActiveTab] = useState(0);
@@ -525,12 +527,10 @@ const SideTabsPanelsComponent: FC<SidePanelsProps> = ({
   const getPartialEmptyBaseProps = useMemo(() => {
     const updatedProps = { ...partialEmptyBaseProps };
 
-    updatedProps.panelViews = partialEmptyBaseProps.panelViews.filter(
-      (view) => view.name !== "comments" || showComments,
-    );
+    updatedProps.panelViews = Object.values(panelData).flatMap((panel) => panel.panelViews);
 
     return updatedProps;
-  }, [partialEmptyBaseProps, showComments]);
+  }, [partialEmptyBaseProps, panelData]);
 
   const emptyBaseProps = { ...getPartialEmptyBaseProps, ...commonProps, breakPointActiveTab, setBreakPointActiveTab };
 

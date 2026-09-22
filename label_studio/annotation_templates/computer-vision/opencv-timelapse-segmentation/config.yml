@@ -1,0 +1,101 @@
+title: OpenCV Timelapse Segmentation
+type: community
+group: Computer Vision
+order: 4
+image: /static/templates/semantic-segmentation-with-masks.png
+details: <h1>Annotate Fujinet timelapse slices with PN shapes and OpenCV-generated editable masks</h1>
+config: |
+  <View>
+    <Repeater on="$timelapse" indexFlag="{{idx}}" mode="pagination"
+              tooltipLabelKey="time" highlightAnnotationMark="true">
+      <Image name="timelapse_{{idx}}"
+             valueList="$timelapse[{{idx}}].image_urls"
+             showMousePos="true" zoom="true" zoomControl="true"
+             maxWidth="auto" verticalAlignment="center" horizontalAlignment="center"
+             defaultZoomScale="3" initZoomPositionToCenter="true"
+             keepZoomingPosition="true" keepCurrentImageIndex="true"
+             sliderPagination="true" defaultPaginationValue="5"
+             highlightAnnotationMark="true"/>
+
+      <View style="display:none">
+        <Header value="2. RECTANGLE - Manual box"/>
+        <RectangleLabels name="rect-{{idx}}" toName="timelapse_{{idx}}" smart="false"
+                         fillOpacity="0.15" strokeWidth="2">
+          <Label value="PN" background="#2563EB"/>
+          <Label value="MicroPN" background="#16A34A"/>
+          <Label value="Blastomere (Cell)" background="#38BDF8"/>
+          <Label value="Fragment" background="#84CC16"/>
+          <Label value="Blastocoel" background="#0EA5E9"/>
+          <Label value="ICM" background="#22C55E"/>
+          <Label value="TE" background="#EC4899"/>
+          <Label value="Hatching opening" background="#F97316"/>
+          <Label value="ZP" background="#A855F7"/>
+          <Label value="Perivitelline space" background="#14B8A6"/>
+          <Label value="PB" background="#F59E0B"/>
+          <Label value="Vacuole" background="#EAB308"/>
+          <Label value="PN Borderline" background="#22C55E" visible="false"/>
+          <Label value="Membrane" background="#EC4899" visible="false"/>
+        </RectangleLabels>
+      </View>
+
+      <View style="display:none">
+        <Header value="3. POLYGON - Manual or OpenCV Detect"/>
+        <PolygonLabels name="pl-{{idx}}" toName="timelapse_{{idx}}" smart="true"
+                       fillOpacity="0.2" strokeWidth="2"
+                       pointStyle="circle" pointSize="small">
+          <Label value="PN" background="#2563EB" hotkey="1"/>
+          <Label value="MicroPN" background="#16A34A" hotkey="2"/>
+          <Label value="Blastomere (Cell)" background="#38BDF8" hotkey="3"/>
+          <Label value="Fragment" background="#84CC16" hotkey="4"/>
+          <Label value="Blastocoel" background="#0EA5E9" hotkey="5"/>
+          <Label value="ICM" background="#22C55E" hotkey="6"/>
+          <Label value="TE" background="#EC4899" hotkey="7"/>
+          <Label value="Hatching opening" background="#F97316" hotkey="8"/>
+          <Label value="ZP" background="#A855F7" hotkey="9"/>
+          <Label value="Perivitelline space" background="#14B8A6"/>
+          <Label value="PB" background="#F59E0B"/>
+          <Label value="Vacuole" background="#EAB308"/>
+          <Label value="PN Borderline" background="#22C55E" visible="false"/>
+          <Label value="Membrane" background="#EC4899" visible="false"/>
+        </PolygonLabels>
+      </View>
+
+      <View style="display:none">
+        <Header value="4. ELLIPSE - Manual ellipse"/>
+        <EllipseLabels name="ellipse-{{idx}}" toName="timelapse_{{idx}}" smart="false"
+                       fillOpacity="0.15" strokeWidth="2">
+          <Label value="PN" background="#F59E0B"/>
+          <Label value="Membrane" background="#EC4899"/>
+        </EllipseLabels>
+      </View>
+
+      <View style="display:none">
+        <Header value="5. KEYPOINT - Manual point"/>
+        <KeyPointLabels name="kp-{{idx}}" toName="timelapse_{{idx}}" smart="false">
+          <Label value="PN" background="#7C3AED"/>
+          <Label value="Membrane" background="#EC4899"/>
+        </KeyPointLabels>
+      </View>
+
+      <View style="display:none">
+        <Choices name="events-{{idx}}" toName="timelapse_{{idx}}" choice="multiple">
+          <Choice value="t_pna"/><Choice value="t_pnf"/><Choice value="t_early cleavage"/>
+          <Choice value="t_fc"/><Choice value="t2"/><Choice value="t3"/><Choice value="t4"/>
+          <Choice value="t5"/><Choice value="t6"/><Choice value="t7"/><Choice value="t8"/>
+          <Choice value="t9+"/><Choice value="t_early compaction"/><Choice value="tM"/>
+          <Choice value="tSC"/><Choice value="t_early cavitation"/><Choice value="tSB"/>
+          <Choice value="tB"/><Choice value="tEB"/><Choice value="tHB"/>
+        </Choices>
+      </View>
+    </Repeater>
+
+    <View style="display:none">
+      <Text name="text" value="Pronuclei visibility"/>
+      <Choices name="pn_visibility" toName="text" choice="single">
+        <Choice alias="Unknown" value="Unknown" hotkey="U"/>
+      </Choices>
+    </View>
+    <View style="display:none">
+      <TextArea name="clinical-manual" toName="text" rows="1" maxSubmissions="1"/>
+    </View>
+  </View>

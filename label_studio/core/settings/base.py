@@ -495,6 +495,10 @@ EMAIL_BACKEND = get_env('EMAIL_BACKEND', 'django.core.mail.backends.dummy.EmailB
 ENABLE_LOCAL_FILES_STORAGE = get_bool_env('ENABLE_LOCAL_FILES_STORAGE', default=True)
 LOCAL_FILES_SERVING_ENABLED = get_bool_env('LOCAL_FILES_SERVING_ENABLED', default=False)
 LOCAL_FILES_DOCUMENT_ROOT = get_env('LOCAL_FILES_DOCUMENT_ROOT', default=os.path.abspath(os.sep))
+# If set, local files not found on disk will be proxied from this upstream URL
+PROXY_LOCAL_FILES_URL = get_env('PROXY_LOCAL_FILES_URL', default=None)
+# Access token for authenticating with the upstream Label Studio server
+PROXY_LOCAL_FILES_TOKEN = get_env('PROXY_LOCAL_FILES_TOKEN', default=None)
 
 SYNC_ON_TARGET_STORAGE_CREATION = get_bool_env('SYNC_ON_TARGET_STORAGE_CREATION', default=True)
 

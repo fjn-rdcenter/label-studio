@@ -83,6 +83,9 @@ const _Tool = types
     get iconComponent() {
       return self.dynamic ? NodeViews.RectRegionModel.altIcon : NodeViews.RectRegionModel.icon;
     },
+    get shouldRenderView() {
+      return true;
+    },
   }));
 
 const _Tool3Point = types

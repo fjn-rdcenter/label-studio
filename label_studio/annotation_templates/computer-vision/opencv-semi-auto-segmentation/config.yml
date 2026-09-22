@@ -1,0 +1,42 @@
+title: OpenCV Semi-Auto Segmentation
+type: community
+group: Computer Vision
+order: 3
+image: /static/templates/semantic-segmentation-with-masks.png
+details: <h1>Draw boxes, polygons, ellipses and masks, or generate editable Object and Membrane masks with OpenCV</h1>
+config: |
+  <View>
+    <Header value="Manual tools and OpenCV semi-auto segmentation"/>
+    <Text name="instructions" value="Select a polygon label, choose OpenCV Detect Polygon (I), place coarse anchor points around the object, then close the polygon."/>
+
+    <Image name="image" value="$image" zoom="true" zoomControl="true"/>
+
+    <BrushLabels name="mask" toName="image" smart="false">
+      <Label value="Object" background="#7C3AED" hotkey="1"/>
+      <Label value="Membrane" background="#EC4899" hotkey="2"/>
+    </BrushLabels>
+
+    <RectangleLabels name="rectangle" toName="image" smart="false"
+                     fillOpacity="0.15" strokeWidth="2">
+      <Label value="Object" background="#0EA5E9"/>
+      <Label value="Membrane" background="#EC4899"/>
+    </RectangleLabels>
+
+    <PolygonLabels name="polygon" toName="image" smart="true"
+                   fillOpacity="0.2" strokeWidth="2"
+                   pointStyle="circle" pointSize="small">
+      <Label value="Object" background="#22C55E"/>
+      <Label value="Membrane" background="#EC4899"/>
+    </PolygonLabels>
+
+    <EllipseLabels name="ellipse" toName="image" smart="false"
+                   fillOpacity="0.15" strokeWidth="2">
+      <Label value="Object" background="#F59E0B"/>
+      <Label value="Membrane" background="#EC4899"/>
+    </EllipseLabels>
+
+    <KeyPointLabels name="prompt" toName="image" smart="false">
+      <Label value="Object" background="#7C3AED"/>
+      <Label value="Membrane" background="#EC4899"/>
+    </KeyPointLabels>
+  </View>

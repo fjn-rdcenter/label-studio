@@ -63,6 +63,7 @@ const Model = types
   .volatile(() => ({
     mouseOverStartPoint: false,
     selectedPoint: null,
+    drawingPoint: null,
     hideable: true,
     _supportsTransform: true,
     useTransformer: true,
@@ -102,6 +103,15 @@ const Model = types
     get flattenedPoints() {
       return getFlattenedPoints(this.points);
     },
+    get flattenedDrawingPoints() {
+      if (!self.drawingPoint) return this.flattenedPoints;
+
+      return [
+        ...this.flattenedPoints,
+        self.parent.internalToCanvasX(self.drawingPoint.x),
+        self.parent.internalToCanvasY(self.drawingPoint.y),
+      ];
+    },
   }))
   .actions((self) => {
     return {
@@ -128,6 +138,10 @@ const Model = types
        */
       setMouseOverStartPoint(value) {
         self.mouseOverStartPoint = value;
+      },
+
+      setDrawingPoint(x, y) {
+        self.drawingPoint = { x, y };
       },
 
       // @todo not used
@@ -246,6 +260,7 @@ const Model = types
 
       closePoly() {
         if (self.closed || self.points.length < 3) return;
+        self.drawingPoint = null;
         self.closed = true;
       },
 
@@ -454,6 +469,29 @@ const Poly = memo(
     );
   }),
 );
+
+const DrawingPreview = observer(({ item, colors }) => {
+  const points = item.flattenedDrawingPoints;
+
+  if (!item.drawingPoint || points.length < 4) return null;
+
+  return (
+    <Line
+      name="polygon-drawing-preview"
+      lineJoin="round"
+      lineCap="square"
+      stroke={colors.strokeColor}
+      strokeWidth={colors.strokeWidth}
+      strokeScaleEnabled={false}
+      perfectDrawEnabled={false}
+      shadowForStrokeEnabled={false}
+      points={points}
+      fill={colors.fillColor}
+      closed={points.length >= 6}
+      listening={false}
+    />
+  );
+});
 
 /**
  * Line between 2 points
@@ -669,6 +707,7 @@ const HtxPolygonView = ({ item, setShapeRef }) => {
           draggable={!item.isReadOnly() && item.inSelection && item.parent?.selectedRegions?.length > 1}
         />
       ) : null}
+      {!item.closed ? <DrawingPreview item={item} colors={regionStyles} /> : null}
       {item.points && !item.isReadOnly() ? <Edges item={item} regionStyles={regionStyles} /> : null}
       {item.points && !item.isReadOnly() ? renderCircles(item.points) : null}
     </Group>

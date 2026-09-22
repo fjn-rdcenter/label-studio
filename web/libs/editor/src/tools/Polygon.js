@@ -8,10 +8,7 @@ import { observe } from "mobx";
 import { FF_DEV_2432, isFF } from "../utils/feature-flags";
 
 const _Tool = types
-  .model("PolygonTool", {
-    group: "segmentation",
-    shortcut: "P",
-  })
+  .model("PolygonToolBase", {})
   .views((self) => {
     const Super = {
       createRegionOptions: self.createRegionOptions,
@@ -38,13 +35,6 @@ const _Tool = types
         };
       },
 
-      get viewTooltip() {
-        return "Polygon region";
-      },
-      get iconComponent() {
-        return self.dynamic ? NodeViews.PolygonRegionModel.altIcon : NodeViews.PolygonRegionModel.icon;
-      },
-
       get defaultDimensions() {
         return DEFAULT_DIMENSIONS.polygon;
       },
@@ -54,6 +44,7 @@ const _Tool = types
           points: [[x, y]],
           width: 10,
           closed: false,
+          dynamic: self.dynamic || self.isOpenCV,
         });
       },
 
@@ -128,12 +119,22 @@ const _Tool = types
         }
       },
 
+      mousemoveEv(_, [x, y]) {
+        const polygon = self.getCurrentArea();
+
+        if (!self.isDrawing || !polygon || polygon.closed) return;
+
+        const point = self.control?.getSnappedPoint({ x, y }) ?? { x, y };
+
+        polygon.setDrawingPoint(point.x, point.y);
+      },
+
       _finishDrawing() {
         if (isFF(FF_DEV_2432)) {
           const { currentArea, control } = self;
 
-          self.currentArea.notifyDrawingFinished();
           self.setDrawing(false);
+          self.currentArea.notifyDrawingFinished();
           self.currentArea = null;
           self.mode = "viewing";
           self.annotation.afterCreateResult(currentArea, control);
@@ -163,6 +164,51 @@ const _Tool = types
     };
   });
 
-const Polygon = types.compose(_Tool.name, ToolMixin, BaseTool, MultipleClicksDrawingTool, _Tool);
+const PolygonIdentity = types
+  .model("PolygonToolIdentity", {
+    group: "segmentation",
+    shortcut: "P",
+  })
+  .views(() => ({
+    get viewTooltip() {
+      return "Polygon region";
+    },
+    get iconComponent() {
+      return NodeViews.PolygonRegionModel.icon;
+    },
+    get shouldRenderView() {
+      return true;
+    },
+  }));
 
-export { Polygon };
+const OpenCVPolygonIdentity = types
+  .model("OpenCVPolygonToolIdentity", {
+    group: "opencv",
+    shortcut: "I",
+  })
+  .volatile(() => ({
+    isOpenCV: true,
+  }))
+  .views((self) => ({
+    get viewTooltip() {
+      return "OpenCV Detect Polygon";
+    },
+    get iconComponent() {
+      return NodeViews.PolygonRegionModel.altIcon;
+    },
+    get shouldRenderView() {
+      return self.control.smart;
+    },
+  }));
+
+const Polygon = types.compose("PolygonTool", ToolMixin, BaseTool, MultipleClicksDrawingTool, _Tool, PolygonIdentity);
+const OpenCVPolygon = types.compose(
+  "OpenCVPolygonTool",
+  ToolMixin,
+  BaseTool,
+  MultipleClicksDrawingTool,
+  _Tool,
+  OpenCVPolygonIdentity,
+);
+
+export { OpenCVPolygon, Polygon };

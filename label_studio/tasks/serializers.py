@@ -281,16 +281,24 @@ class BaseTaskSerializerBulk(serializers.ListSerializer):
                     annotation['completed_by_id'] = members_email_to_id[email]
 
             # old style annotators specification - try to find them by ID
-            elif isinstance(completed_by, int) and completed_by in members_ids:
-                if completed_by not in members_ids:
-                    raise ValidationError(f"Unknown annotator's ID {completed_by}")
-                annotation['completed_by_id'] = completed_by
+            elif isinstance(completed_by, int):
+                if completed_by in members_ids:
+                    annotation['completed_by_id'] = completed_by
+                else:
+                    # ID not found in current org (e.g. imported from another system) → fallback to importer
+                    logger.warning(
+                        f"completed_by={completed_by} is not a member of this organization, "
+                        f"assigning annotation to the importing user instead."
+                    )
+                    annotation['completed_by_id'] = default_user.id
 
-            # in any other cases - import validation error
+            # in any other cases - fallback to importer instead of raising an error
             else:
-                raise ValidationError(
-                    f"Import data contains completed_by={completed_by} which is not a valid annotator's email or ID"
+                logger.warning(
+                    f"Import data contains completed_by={completed_by} which is not a valid annotator's email or ID, "
+                    f"assigning annotation to the importing user instead."
                 )
+                annotation['completed_by_id'] = default_user.id
             annotation.pop('completed_by', None)
 
     @staticmethod

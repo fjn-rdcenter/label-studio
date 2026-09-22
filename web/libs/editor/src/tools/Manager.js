@@ -107,6 +107,7 @@ class ToolsManager {
     if (currentTool && newSelection === "segmentation") {
       const toolType = tool.control.type.replace(/labels$/, "");
       const currentLabels = tool.obj.activeStates();
+      const selectedValues = currentTool.control?.selectedValues?.() ?? [];
       // labels of different types; we can't create regions with different tools simultaneously, so we have to unselect them
       const unrelatedLabels = currentLabels.filter((tag) => {
         const type = tag.type.replace(/labels$/, "");
@@ -117,6 +118,11 @@ class ToolsManager {
       });
 
       unrelatedLabels.forEach((tag) => tag.unselectAll());
+
+      // Keep the semantic label while switching between compatible drawing controls.
+      if (!tool.control.isSelected && tool.control.findLabel) {
+        selectedValues.map((value) => tool.control.findLabel(value)).forEach((label) => label?.setSelected(true));
+      }
     }
 
     currentTool?.handleToolSwitch?.(tool);

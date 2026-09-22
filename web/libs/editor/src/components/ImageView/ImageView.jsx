@@ -626,6 +626,7 @@ export default observer(
         "RectangleTool-dynamic",
         "PolygonTool",
         "PolygonTool-dynamic",
+        "OpenCVPolygonTool",
         "Rectangle3PointTool",
         "Rectangle3PointTool-dynamic",
       ].includes(selectedTool?.fullName);
