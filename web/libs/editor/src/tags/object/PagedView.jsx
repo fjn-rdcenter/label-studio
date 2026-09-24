@@ -151,13 +151,16 @@ const updateQueryPage = (page, currentTaskId = null) => {
 // };
 
 const HtxPagedView = observer(({ item }) => {
-  const [page, _setPage] = useState(getQueryPage);
+  const taskId = item.annotationStore?.store?.task.id;
+  const initialPage = lastTaskId === null || lastTaskId === taskId ? getQueryPage() : 1;
+  const clampedInitialPage = Math.min(Math.max(initialPage, 1), Math.max(item.children.length, 1));
+  const [page, _setPage] = useState(clampedInitialPage);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [marks, setMarks] = useState([]);
   const dataKey = item.$treenode._initialSnapshot.on.replace("$", "");
   const frameData = item.annotationStore?.store?.task.dataObj?.[dataKey] || [];
   const frameDays = item.children.map((_, index) => normalizeDay(frameData[index]));
-  const [day, _setDay] = useState(() => frameDays[getQueryPage() - 1] ?? 0);
+  const [day, _setDay] = useState(() => frameDays[clampedInitialPage - 1] ?? 0);
 
   const setPage = useCallback((_page) => {
     _setPage(_page);
@@ -280,11 +283,8 @@ const HtxPagedView = observer(({ item }) => {
   }, [item.annotation.results, item.annotation.results.length]);
 
   useEffect(() => {
-    updateQueryPage(getQueryPage(), item.annotationStore?.store?.task.id);
-    return () => {
-      updateQueryPage(1, item.annotationStore?.store?.task.id);
-    };
-  }, []);
+    updateQueryPage(clampedInitialPage, taskId);
+  }, [taskId]);
 
   const renderPage = useCallback(() => {
     const pageView = [];
@@ -308,8 +308,8 @@ const HtxPagedView = observer(({ item }) => {
   }, [day, frameDays.join(","), page, setDay, setFrame]);
 
   return (
-    <div>
-      <div style={{ width: "100%", padding: '17px 21px 0px 21px', background:'white', position:'sticky', top: 0,zIndex:10, boxShadow:"0px 0px 0px 1px rgba(0, 0, 0, 0.05), 0px 5px 10px rgba(0, 0, 0, 0.1)" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, overflow: "hidden" }}>
+      <div style={{ width: "100%", flexShrink: 0, padding: '17px 21px 0px 21px', background:'white', position:'sticky', top: 0,zIndex:10, boxShadow:"0px 0px 0px 1px rgba(0, 0, 0, 0.05), 0px 5px 10px rgba(0, 0, 0, 0.1)" }}>
         <Slider
           min={1}
           max={Math.max(dayPages.length, 1)}
@@ -374,7 +374,9 @@ const HtxPagedView = observer(({ item }) => {
           }}
         ></Slider>
       </div>
-      {renderPage()}
+      <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+        {renderPage()}
+      </div>
     </div>
   );
 });

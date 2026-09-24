@@ -11,7 +11,7 @@ config: |
       <Image name="timelapse_{{idx}}"
              valueList="$timelapse[{{idx}}].image_urls"
              showMousePos="true" zoom="true" zoomControl="true"
-             maxWidth="auto" verticalAlignment="center" horizontalAlignment="center"
+             maxWidth="auto" maxHeight="calc(100dvh - 290px)" verticalAlignment="center" horizontalAlignment="center"
              defaultZoomScale="3" initZoomPositionToCenter="true"
              keepZoomingPosition="true" keepCurrentImageIndex="true"
              sliderPagination="true" defaultPaginationValue="5"

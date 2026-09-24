@@ -481,13 +481,18 @@ export default types
      * @param {*[]} taskHistory
      */
     function assignTask(taskObject) {
+      const currentImageIndex = self.task?.id === taskObject?.id ? self.task.currentImageIndex : null;
+
       if (taskObject && !Utils.Checkers.isString(taskObject.data)) {
         taskObject = {
           ...taskObject,
           data: JSON.stringify(taskObject.data),
         };
       }
-      self.task = Task.create(taskObject);
+      self.task = Task.create({
+        ...taskObject,
+        ...(currentImageIndex !== null ? { currentImageIndex } : {}),
+      });
 
       if (!self.taskHistory.some((x) => x.taskId === self.task.id)) {
         self.taskHistory.push({

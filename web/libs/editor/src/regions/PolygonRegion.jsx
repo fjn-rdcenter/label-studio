@@ -1,6 +1,6 @@
 import Konva from "konva";
 import React, { memo, useContext, useEffect, useMemo } from "react";
-import { Group, Line } from "react-konva";
+import { Group, Line, Shape } from "react-konva";
 import { destroy, detach, getRoot, isAlive, types } from "mobx-state-tree";
 
 import Constants from "../core/Constants";
@@ -30,7 +30,7 @@ const PolygonRegionAbsoluteCoordsDEV3793 = types
   .actions((self) => ({
     updateImageSize(wp, hp, sw, sh) {
       if (self.coordstype === "px") {
-        self.points.forEach((p) => {
+        [...self.points, ...self.holes].forEach((p) => {
           const x = (sw * p.relativeX) / RELATIVE_STAGE_WIDTH;
           const y = (sh * p.relativeY) / RELATIVE_STAGE_HEIGHT;
 
@@ -39,7 +39,7 @@ const PolygonRegionAbsoluteCoordsDEV3793 = types
       }
 
       if (!self.annotation.sentUserGenerate && self.coordstype === "perc") {
-        self.points.forEach((p) => {
+        [...self.points, ...self.holes].forEach((p) => {
           const x = (sw * p.x) / RELATIVE_STAGE_WIDTH;
           const y = (sh * p.y) / RELATIVE_STAGE_HEIGHT;
 
@@ -58,6 +58,9 @@ const Model = types
     object: types.late(() => types.reference(ImageModel)),
 
     points: types.array(types.union(PolygonPoint, types.array(types.number)), []),
+    holes: types.array(types.union(PolygonPoint, types.array(types.number)), []),
+    ring: false,
+    outerclosed: false,
     closed: true,
   })
   .volatile(() => ({
@@ -112,6 +115,20 @@ const Model = types
         self.parent.internalToCanvasY(self.drawingPoint.y),
       ];
     },
+    get flattenedHolePoints() {
+      return getFlattenedPoints(self.holes);
+    },
+    get flattenedHoleDrawingPoints() {
+      if (!self.drawingPoint || !self.outerclosed) return this.flattenedHolePoints;
+      return [
+        ...this.flattenedHolePoints,
+        self.parent.internalToCanvasX(self.drawingPoint.x),
+        self.parent.internalToCanvasY(self.drawingPoint.y),
+      ];
+    },
+    get activePoints() {
+      return self.ring && self.outerclosed ? self.holes : self.points;
+    },
   }))
   .actions((self) => {
     return {
@@ -126,6 +143,21 @@ const Model = types
             style: self.pointStyle,
             index,
           }));
+        }
+        if (self.holes.length && !self.holes[0].id) {
+          self.holes = self.holes.map(([x, y], index) => ({
+            id: guidGenerator(),
+            x,
+            y,
+            size: self.pointSize,
+            style: self.pointStyle,
+            index,
+          }));
+        }
+        if (self.ring) {
+          self.outerclosed = self.outerclosed || self.holes.length > 0;
+          self.useTransformer = false;
+          self._supportsTransform = false;
         }
         if (!isFF(FF_DEV_2432)) self.closed = self.points.length > 2;
         self.checkSizes();
@@ -170,7 +202,7 @@ const Model = types
         removeHoverAnchor({ layer: e.currentTarget.getLayer() });
       },
 
-      handleLineClick({ e, flattenedPoints, insertIdx }) {
+      handleLineClick({ e, flattenedPoints, insertIdx, contour = "outer" }) {
         if (!self.closed || !self.selected) return;
 
         e.cancelBubble = true;
@@ -182,12 +214,13 @@ const Model = types
         const [cursorX, cursorY] = self.parent.fixZoomedCoords([offsetX, offsetY]);
         const point = getAnchorPoint({ flattenedPoints, cursorX, cursorY });
 
-        self.insertPoint(insertIdx, point[0], point[1]);
+        self.insertPoint(insertIdx, point[0], point[1], contour);
       },
 
       deletePoint(point) {
-        const willNotEliminateClosedShape = self.points.length <= 3 && point.parent.closed;
-        const isLastPoint = self.points.length === 1;
+        const contour = self.getContourForPoint(point);
+        const willNotEliminateClosedShape = contour.length <= 3 && point.parent.closed;
+        const isLastPoint = contour.length === 1;
         const isSelected = self.selectedPoint === point;
 
         if (willNotEliminateClosedShape || isLastPoint) return;
@@ -203,6 +236,68 @@ const Model = types
         self._addPoint(point.x, point.y);
       },
 
+      getContourForPoint(point) {
+        return self.holes.includes(point) ? self.holes : self.points;
+      },
+
+      isContourClosed(point) {
+        return self.getContourForPoint(point) === self.points ? self.outerclosed || self.closed : self.closed;
+      },
+
+      startInner(x, y) {
+        if (!self.ring || !self.outerclosed || self.holes.length) return;
+        const point = self.control?.getSnappedPoint({ x, y }) ?? { x, y };
+        self.drawingPoint = null;
+        self.holes.push({
+          id: guidGenerator(),
+          x: point.x,
+          y: point.y,
+          size: self.pointSize,
+          style: self.pointStyle,
+          index: 0,
+        });
+      },
+
+      addRingPoint(x, y) {
+        if (!self.ring || self.closed) return;
+        const contour = self.activePoints;
+        const point = self.control?.getSnappedPoint({ x, y }) ?? { x, y };
+        if (contour.length && self.parent.isSamePixel(contour[0], point)) {
+          self.closeActiveContour();
+          return;
+        }
+        contour.push({
+          id: guidGenerator(),
+          x: point.x,
+          y: point.y,
+          size: self.pointSize,
+          style: self.pointStyle,
+          index: contour.length,
+        });
+      },
+
+      closeOuter() {
+        if (!self.ring || self.outerclosed || self.points.length < 3) return;
+        self.drawingPoint = null;
+        self.outerclosed = true;
+      },
+
+      closeInner() {
+        if (!self.ring || self.closed || self.holes.length < 3) return;
+        self.drawingPoint = null;
+        self.closed = true;
+      },
+
+      closeActiveContour() {
+        if (!self.outerclosed) self.closeOuter();
+        else self.closeInner();
+      },
+
+      closeContour(point) {
+        if (self.ring && !self.closed) self.closeActiveContour();
+        else self.closePoly();
+      },
+
       setPoints(points) {
         self.points.forEach((p, idx) => {
           p.x = points[idx * 2];
@@ -210,15 +305,16 @@ const Model = types
         });
       },
 
-      insertPoint(insertIdx, x, y) {
+      insertPoint(insertIdx, x, y, contour = "outer") {
+        const targetPoints = contour === "inner" ? self.holes : self.points;
         const pointCoords = self.control?.getSnappedPoint({
           x: self.parent.canvasToInternalX(x),
           y: self.parent.canvasToInternalY(y),
         });
         const isMatchWithPrevPoint =
-          self.points[insertIdx - 1] && self.parent.isSamePixel(pointCoords, self.points[insertIdx - 1]);
+          targetPoints[insertIdx - 1] && self.parent.isSamePixel(pointCoords, targetPoints[insertIdx - 1]);
         const isMatchWithNextPoint =
-          self.points[insertIdx] && self.parent.isSamePixel(pointCoords, self.points[insertIdx]);
+          targetPoints[insertIdx] && self.parent.isSamePixel(pointCoords, targetPoints[insertIdx]);
 
         if (isMatchWithPrevPoint || isMatchWithNextPoint) {
           return;
@@ -230,12 +326,12 @@ const Model = types
           y: pointCoords.y,
           size: self.pointSize,
           style: self.pointStyle,
-          index: self.points.length,
+          index: targetPoints.length,
         };
 
-        self.points.splice(insertIdx, 0, p);
+        targetPoints.splice(insertIdx, 0, p);
 
-        return self.points[insertIdx];
+        return targetPoints[insertIdx];
       },
 
       _addPoint(x, y) {
@@ -282,6 +378,8 @@ const Model = types
       destroyRegion() {
         detach(self.points);
         destroy(self.points);
+        detach(self.holes);
+        destroy(self.holes);
       },
 
       afterUnselectRegion() {
@@ -328,6 +426,13 @@ const Model = types
             ? self.points.map((p) => [p.x, p.y])
             : self.points.map((p) => [self.convertXToPerc(p.x), self.convertYToPerc(p.y)]),
           ...(isFF(FF_DEV_2432) ? { closed: self.closed } : {}),
+          ...(self.ring ? {
+            ring: true,
+            outerclosed: self.outerclosed,
+            holes: [isFF(FF_DEV_3793)
+              ? self.holes.map((p) => [p.x, p.y])
+              : self.holes.map((p) => [self.convertXToPerc(p.x), self.convertYToPerc(p.y)])],
+          } : {}),
         };
 
         return self.parent.createSerializedResult(self, value);
@@ -343,7 +448,13 @@ const PolygonRegionModel = types.compose(
   KonvaRegionMixin,
   Model,
   ...(isFF(FF_DEV_3793) ? [] : [PolygonRegionAbsoluteCoordsDEV3793]),
-);
+).preProcessSnapshot((snapshot) => ({
+  ...snapshot,
+  holes: Array.isArray(snapshot.holes?.[0]) && Array.isArray(snapshot.holes[0]?.[0])
+    ? snapshot.holes[0]
+    : snapshot.holes ?? [],
+  ring: snapshot.ring || Boolean(snapshot.holes?.length),
+}));
 
 /**
  * Get coordinates of anchor point
@@ -470,8 +581,59 @@ const Poly = memo(
   }),
 );
 
+const signedArea = (points) => {
+  let area = 0;
+  for (let index = 0; index < points.length; index += 2) {
+    const next = (index + 2) % points.length;
+    area += points[index] * points[next + 1] - points[next] * points[index + 1];
+  }
+  return area / 2;
+};
+
+const traceContour = (context, points) => {
+  if (points.length < 6) return;
+  context.moveTo(points[0], points[1]);
+  for (let index = 2; index < points.length; index += 2) {
+    context.lineTo(points[index], points[index + 1]);
+  }
+  context.closePath();
+};
+
+const reverseContour = (points) => {
+  const reversed = [];
+  for (let index = points.length - 2; index >= 0; index -= 2) {
+    reversed.push(points[index], points[index + 1]);
+  }
+  return reversed;
+};
+
+const RingPoly = observer(({ item, colors }) => {
+  const outer = item.flattenedPoints;
+  const inner = item.flattenedHolePoints;
+
+  return (
+    <Shape
+      name="ring-polygon"
+      fill={colors.fillColor}
+      stroke={colors.strokeColor}
+      strokeWidth={colors.strokeWidth}
+      strokeScaleEnabled={false}
+      perfectDrawEnabled={false}
+      shadowForStrokeEnabled={false}
+      sceneFunc={(context, shape) => {
+        context.beginPath();
+        traceContour(context, outer);
+        if (inner.length >= 6) {
+          traceContour(context, signedArea(outer) * signedArea(inner) > 0 ? reverseContour(inner) : inner);
+        }
+        context.fillStrokeShape(shape);
+      }}
+    />
+  );
+});
+
 const DrawingPreview = observer(({ item, colors }) => {
-  const points = item.flattenedDrawingPoints;
+  const points = item.ring && item.outerclosed ? item.flattenedHoleDrawingPoints : item.flattenedDrawingPoints;
 
   if (!item.drawingPoint || points.length < 4) return null;
 
@@ -496,7 +658,7 @@ const DrawingPreview = observer(({ item, colors }) => {
 /**
  * Line between 2 points
  */ 
-const Edge = observer(({ name, item, idx, p1, p2, closed, regionStyles }) => {
+const Edge = observer(({ name, item, idx, p1, p2, closed, regionStyles, contour }) => {
   const insertIdx = idx + 1; // idx1 + 1 or idx2
   const flattenedPoints = [p1.canvasX, p1.canvasY, p2.canvasX, p2.canvasY];
 
@@ -516,7 +678,7 @@ const Edge = observer(({ name, item, idx, p1, p2, closed, regionStyles }) => {
     <Group
       key={name}
       name={name}
-      onClick={(e) => item.handleLineClick({ e, flattenedPoints, insertIdx })}
+      onClick={(e) => item.handleLineClick({ e, flattenedPoints, insertIdx, contour })}
       onMouseMove={(e) => {
         if (!item.closed || !item.selected || item.isReadOnly()) return;
 
@@ -539,9 +701,8 @@ const Edge = observer(({ name, item, idx, p1, p2, closed, regionStyles }) => {
 });
 
 const Edges = memo(
-  observer(({ item, regionStyles }) => {
-    const { points, closed } = item;
-    const name = "borders";
+  observer(({ item, regionStyles, points = item.points, closed = item.closed, contour = "outer" }) => {
+    const name = `borders-${contour}`;
 
     if (item.closed && (item.parent.useTransformer || !item.selected)) {
       return null;
@@ -565,6 +726,7 @@ const Edges = memo(
               p1={points[idx]}
               p2={points[idx2]}
               closed={closed}
+              contour={contour}
               regionStyles={regionStyles}
             />
           );
@@ -582,8 +744,8 @@ const HtxPolygonView = ({ item, setShapeRef }) => {
     useStrokeAsFill: true,
   });
 
-  function renderCircle({ points, idx }) {
-    const name = `anchor_${points.length}_${idx}`;
+  function renderCircle({ points, idx, contour }) {
+    const name = `anchor_${contour}_${points.length}_${idx}`;
     const point = points[idx];
 
     if (!item.closed || (item.closed && item.selected)) {
@@ -591,15 +753,15 @@ const HtxPolygonView = ({ item, setShapeRef }) => {
     }
   }
 
-  function renderCircles(points) {
-    const name = "anchors";
+  function renderCircles(points, contour) {
+    const name = `anchors-${contour}`;
 
     if (item.closed && (item.parent.useTransformer || !item.selected)) {
       return null;
     }
     return (
       <Group key={name} name={name}>
-        {points.map((p, idx) => renderCircle({ points, idx }))}
+        {points.map((p, idx) => renderCircle({ points, idx, contour }))}
       </Group>
     );
   }
@@ -635,7 +797,7 @@ const HtxPolygonView = ({ item, setShapeRef }) => {
           point.x = item.parent?.internalToCanvasX(point.x);
           point.y = item.parent?.internalToCanvasY(point.y);
 
-          item.points.forEach((p) => p.movePoint(point.x, point.y));
+          [...item.points, ...item.holes].forEach((p) => p.movePoint(point.x, point.y));
           item.annotation.history.unfreeze(item.id);
         }
 
@@ -654,6 +816,9 @@ const HtxPolygonView = ({ item, setShapeRef }) => {
   if (!item.inViewPort) return null;
 
   const stage = item.parent?.stageRef;
+  const selectedTool = item.parent?.getToolsManager().findSelectedTool();
+  const isCreatingPolygon = item.annotation?.isDrawing
+    && ["PolygonTool", "RingPolygonTool", "OpenCVPolygonTool"].includes(selectedTool?.toolName);
 
   return (
     <Group
@@ -693,13 +858,15 @@ const HtxPolygonView = ({ item, setShapeRef }) => {
       }}
       {...dragProps}
       draggable={!item.isReadOnly() && (!item.inSelection || item.parent?.selectedRegions?.length === 1)}
-      listening={!suggestion}
+      listening={!suggestion && !(isCreatingPolygon && item.closed)}
     >
       <LabelOnPolygon item={item} color={regionStyles.strokeColor} />
 
       {item.mouseOverStartPoint}
 
-      {item.points && item.closed ? (
+      {item.ring && item.outerclosed ? (
+        <RingPoly item={item} colors={regionStyles} />
+      ) : item.points && item.closed ? (
         <Poly
           item={item}
           colors={regionStyles}
@@ -708,8 +875,18 @@ const HtxPolygonView = ({ item, setShapeRef }) => {
         />
       ) : null}
       {!item.closed ? <DrawingPreview item={item} colors={regionStyles} /> : null}
-      {item.points && !item.isReadOnly() ? <Edges item={item} regionStyles={regionStyles} /> : null}
-      {item.points && !item.isReadOnly() ? renderCircles(item.points) : null}
+      {item.points && !item.isReadOnly() ? (
+        <Edges
+          item={item}
+          regionStyles={regionStyles}
+          closed={item.ring ? item.outerclosed : item.closed}
+        />
+      ) : null}
+      {item.ring && item.holes.length && !item.isReadOnly() ? (
+        <Edges item={item} regionStyles={regionStyles} points={item.holes} closed={item.closed} contour="inner" />
+      ) : null}
+      {item.points && !item.isReadOnly() ? renderCircles(item.points, "outer") : null}
+      {item.ring && item.holes.length && !item.isReadOnly() ? renderCircles(item.holes, "inner") : null}
     </Group>
   );
 };

@@ -86,6 +86,9 @@ const PolygonPointRelativeCoords = types
     get annotation() {
       return getRoot(self).annotationStore.selected;
     },
+    get contour() {
+      return self.parent?.getContourForPoint?.(self) ?? self.parent?.points ?? [];
+    },
     get canvasX() {
       return isFF(FF_DEV_3793) ? self.stage?.internalToCanvasX(self.x) : self.x;
     },
@@ -127,10 +130,11 @@ const PolygonPointRelativeCoords = types
      */
     closeStartPoint() {
       if (self.annotation.isReadOnly()) return;
-      if (self.parent.closed) return;
+      if (self.parent.isContourClosed?.(self) ?? self.parent.closed) return;
 
       if (self.parent.mouseOverStartPoint) {
-        self.parent.closePoly();
+        if (self.parent.closeContour) self.parent.closeContour(self);
+        else self.parent.closePoly();
       }
     },
 
@@ -145,7 +149,7 @@ const PolygonPointRelativeCoords = types
       /**
        * Check if polygon > 2 points and closed point
        */
-      if (self.parent.closed || self.parent.points.length < 3) return;
+      if ((self.parent.isContourClosed?.(self) ?? self.parent.closed) || self.contour.length < 3) return;
 
       const startPoint = ev.target;
 
@@ -310,13 +314,13 @@ const PolygonPointView = observer(({ item, name }) => {
         }}
         onClick={(ev) => {
           if (isFF(FF_DEV_2431) && ev.evt.altKey) return item.parent.deletePoint(item);
-          if (item.parent.isDrawing && item.parent.points.length === 1) return;
+          if (item.parent.isDrawing && item.contour.length === 1) return;
           // don't unselect polygon on point click
           ev.evt.preventDefault();
           ev.cancelBubble = true;
           if (item.parent.mouseOverStartPoint) {
             item.closeStartPoint();
-            item.parent.notifyDrawingFinished();
+            if (item.parent.closed && !item.parent.ring) item.parent.notifyDrawingFinished();
           } else {
             item.parent.setSelectedPoint(item);
           }

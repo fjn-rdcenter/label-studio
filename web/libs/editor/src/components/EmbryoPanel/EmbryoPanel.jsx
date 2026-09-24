@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { observer } from "mobx-react";
 
-import { IconPolygonTool, IconRectangleTool } from "../../assets/icons";
+import { IconPolygonTool, IconRectangleTool, IconRingPolygonTool } from "../../assets/icons";
 import { getEmbryoNavigation, subscribeEmbryoNavigation } from "./EmbryoNavigation";
 import styles from "./EmbryoPanel.module.scss";
 
@@ -66,8 +66,10 @@ const readClinical = (control) => {
 };
 
 const objectLabel = (region) => region.labels?.[0] || region.labelName || "Object";
-const objectShape = (region) => region.type === "rectangleregion" ? "Rectangle" : "Polygon";
-const objectShapeIcon = (region) => region.type === "rectangleregion" ? IconRectangleTool : IconPolygonTool;
+const objectShape = (region) => region.type === "rectangleregion" ? "Rectangle" : region.ring ? "Ring Polygon" : "Polygon";
+const objectShapeIcon = (region) => region.type === "rectangleregion"
+  ? IconRectangleTool
+  : region.ring ? IconRingPolygonTool : IconPolygonTool;
 
 const ObjectTab = observer(({ currentEntity, item }) => {
   const [showExtended, setShowExtended] = useState(false);
@@ -94,8 +96,12 @@ const ObjectTab = observer(({ currentEntity, item }) => {
       control.unselectAll();
       matchingLabel.setSelected(true);
     });
-    const tool = polygonControl?.tools?.Polygon;
-    if (tool) item.getToolsManager().selectTool(tool, true);
+    const manager = item.getToolsManager();
+    const selectedTool = manager.findSelectedTool();
+    const tool = ["PolygonTool", "RingPolygonTool", "OpenCVPolygonTool"].includes(selectedTool?.toolName)
+      ? selectedTool
+      : polygonControl?.tools?.Polygon;
+    if (tool) manager.selectTool(tool, true);
   };
 
   const renderLabel = label => {

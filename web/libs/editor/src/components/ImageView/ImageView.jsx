@@ -626,6 +626,7 @@ export default observer(
         "RectangleTool-dynamic",
         "PolygonTool",
         "PolygonTool-dynamic",
+        "RingPolygonTool",
         "OpenCVPolygonTool",
         "Rectangle3PointTool",
         "Rectangle3PointTool-dynamic",
@@ -1149,6 +1150,9 @@ export default observer(
                   }}
                   sx={{
                     "--Slider-markSize": "4px",
+                    "& .MuiSlider-valueLabel": {
+                      marginLeft: "-20px",
+                    },
                     "& .MuiSlider-markLabel": {
                       left: 'calc(50% + -4px + (max(var(--Slider-trackSize), var(--Slider-thumbSize)) / 2))',
                       color: "#ff5a5a",

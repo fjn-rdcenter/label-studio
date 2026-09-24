@@ -14,6 +14,7 @@ import {
   IconKeypointsToolSmart,
   IconPolygonTool,
   IconPolygonToolSmart,
+  IconRingPolygonTool,
   IconRectangle3PointTool,
   IconRectangle3PointToolSmart,
   IconRectangleTool,
@@ -174,7 +175,7 @@ const NodeIcon: FC<any> = observer(({ node, ...props }) => {
     return null;
   }
 
-  const { icon: Icon } = NodeViews[name];
+  const Icon = name === "PolygonRegionModel" && node.ring ? IconRingPolygonTool : NodeViews[name].icon;
 
   return <Icon {...props} />;
 });
@@ -189,7 +190,10 @@ const NodeMinimal: FC<any> = observer(({ node }) => {
     return null;
   }
 
-  const { name: text, icon } = NodeViews[name];
+  const view = NodeViews[name];
+  const isRingPolygon = name === "PolygonRegionModel" && node.ring;
+  const text = isRingPolygon ? "Ring Polygon" : view.name;
+  const icon = isRingPolygon ? IconRingPolygonTool : view.icon;
 
   return (
     <Block name="node-minimal" tag="span">

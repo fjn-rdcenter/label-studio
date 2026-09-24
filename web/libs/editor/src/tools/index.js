@@ -5,6 +5,7 @@ import { Brush } from "./Brush";
 import { Erase } from "./Erase";
 import { KeyPoint } from "./KeyPoint";
 import { OpenCVPolygon, Polygon } from "./Polygon";
+import { RingPolygon } from "./RingPolygon";
 import { EllipseBasedPolygon } from "./EllipseBasedPolygon";
 import { Rect, Rect3Point } from "./Rect";
 import { Ellipse } from "./Ellipse";
@@ -21,6 +22,7 @@ export {
   KeyPoint,
   Polygon,
   OpenCVPolygon,
+  RingPolygon,
   EllipseBasedPolygon,
   Rect,
   Rect3Point,

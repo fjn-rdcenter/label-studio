@@ -14,12 +14,13 @@
 
   &__content
     height 100%
+    min-height 0
     position relative
     z-index 1
     styled-scrollbars()
 
     & .main-content
-      overflow auto
+      overflow hidden
       padding-bottom calc(var(--bottombar-height) + 8px);
 
     &_resizing
