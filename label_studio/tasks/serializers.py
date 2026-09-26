@@ -9,7 +9,7 @@ from core.utils.common import load_func, retry_database_locked
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from drf_yasg import openapi
-from projects.models import Project
+from projects.models import Project, ProjectMember
 from rest_flex_fields import FlexFieldsModelSerializer
 from rest_framework import generics, serializers
 from rest_framework.exceptions import ValidationError
@@ -91,6 +91,39 @@ class AnnotationSerializer(FlexFieldsModelSerializer):
     created_ago = serializers.CharField(default='', read_only=True, help_text='Time delta from creation time')
     completed_by = serializers.PrimaryKeyRelatedField(required=False, queryset=User.objects.all())
     unique_id = serializers.CharField(required=False, write_only=True)
+    quality_level = serializers.IntegerField(required=False)
+    quality_updated_by = serializers.PrimaryKeyRelatedField(read_only=True)
+
+    def validate_quality_level(self, value):
+        if value not in [choice.value for choice in Annotation.QualityLevel]:
+            raise ValidationError('quality_level must be 1, 2, or 3')
+
+        user = self.context['request'].user
+        project = self.instance.project if self.instance is not None else self.context['view'].get_parent_object().project
+        if self.instance is not None and value < self.instance.quality_level:
+            manager_revert = (
+                self.instance.quality_level == Annotation.QualityLevel.MANAGER
+                and value == Annotation.QualityLevel.REVIEWER
+                and project.has_role(user, ProjectMember.Role.MANAGER)
+            )
+            if not manager_revert:
+                raise ValidationError('quality_level cannot be downgraded')
+
+        max_quality_level = Annotation.QualityLevel.ANNOTATOR
+        if project.has_role(user, ProjectMember.Role.MANAGER):
+            max_quality_level = Annotation.QualityLevel.MANAGER
+        elif project.has_role(user, ProjectMember.Role.REVIEWER):
+            max_quality_level = Annotation.QualityLevel.REVIEWER
+
+        if value > max_quality_level:
+            raise ValidationError(f'Your project role can set quality_level up to {max_quality_level}')
+
+        return value
+
+    def update(self, instance, validated_data):
+        if 'quality_level' in validated_data:
+            validated_data['quality_updated_by'] = self.context['request'].user
+        return super().update(instance, validated_data)
 
     def create(self, *args, **kwargs):
         try:
@@ -645,6 +678,8 @@ class TaskWithAnnotationsAndPredictionsAndDraftsSerializer(TaskSerializer):
     annotations = serializers.SerializerMethodField(default=[], read_only=True)
     drafts = serializers.SerializerMethodField(default=[], read_only=True)
     updated_by = serializers.SerializerMethodField(default=[], read_only=True)
+    can_annotate = serializers.SerializerMethodField()
+    can_manage_annotation_quality = serializers.SerializerMethodField()
 
     def get_updated_by(self, task):
         return [{'user_id': task.updated_by_id}] if task.updated_by_id else []
@@ -652,6 +687,14 @@ class TaskWithAnnotationsAndPredictionsAndDraftsSerializer(TaskSerializer):
     def _get_user(self):
         if 'request' in self.context and hasattr(self.context['request'], 'user'):
             return self.context['request'].user
+
+    def get_can_annotate(self, task):
+        user = self._get_user()
+        return bool(user and task.project.has_role(user, ProjectMember.Role.ANNOTATOR))
+
+    def get_can_manage_annotation_quality(self, task):
+        user = self._get_user()
+        return bool(user and task.project.has_role(user, ProjectMember.Role.MANAGER))
 
     def get_predictions(self, task):
         predictions = task.predictions

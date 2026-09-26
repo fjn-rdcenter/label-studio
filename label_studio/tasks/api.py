@@ -19,12 +19,14 @@ from django.utils.decorators import method_decorator
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_yasg.utils import no_body, swagger_auto_schema
 from projects.functions.stream_history import fill_history_annotation
-from projects.models import Project
+from projects.models import Project, ProjectMember
 from rest_framework import generics, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
 from tasks.models import Annotation, AnnotationDraft, Prediction, Task
+from tasks.permissions import AnnotationWorkflowPermission
 from tasks.openapi_schema import (
     annotation_request_schema,
     annotation_response_example,
@@ -405,6 +407,7 @@ class AnnotationAPI(generics.RetrieveUpdateDestroyAPIView):
         PATCH=all_permissions.annotations_change,
         DELETE=all_permissions.annotations_delete,
     )
+    permission_classes = api_settings.DEFAULT_PERMISSION_CLASSES + [AnnotationWorkflowPermission]
 
     serializer_class = AnnotationSerializer
     queryset = Annotation.objects.all()
@@ -512,6 +515,7 @@ class AnnotationsListAPI(GetParentObjectMixin, generics.ListCreateAPIView):
         GET=all_permissions.annotations_view,
         POST=all_permissions.annotations_create,
     )
+    permission_classes = api_settings.DEFAULT_PERMISSION_CLASSES + [AnnotationWorkflowPermission]
     parent_queryset = Task.objects.all()
 
     serializer_class = AnnotationSerializer
@@ -542,6 +546,13 @@ class AnnotationsListAPI(GetParentObjectMixin, generics.ListCreateAPIView):
         task = self.get_parent_object()
         # annotator has write access only to annotations and it can't be checked it after serializer.save()
         user = self.request.user
+        quality_level = Annotation.QualityLevel.ANNOTATOR
+        if ser.validated_data.get('parent_prediction') is not None:
+            quality_level = Annotation.QualityLevel.ANNOTATOR
+        elif task.project.has_role(user, ProjectMember.Role.MANAGER):
+            quality_level = Annotation.QualityLevel.MANAGER
+        elif task.project.has_role(user, ProjectMember.Role.REVIEWER):
+            quality_level = Annotation.QualityLevel.REVIEWER
 
         # updates history
         result = ser.validated_data.get('result')
@@ -565,6 +576,9 @@ class AnnotationsListAPI(GetParentObjectMixin, generics.ListCreateAPIView):
 
         if 'completed_by' not in ser.validated_data:
             extra_args['completed_by'] = self.request.user
+
+        extra_args['quality_level'] = quality_level
+        extra_args['quality_updated_by'] = user
 
         draft_id = self.request.data.get('draft_id')
         draft = AnnotationDraft.objects.filter(id=draft_id).first()

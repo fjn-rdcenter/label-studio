@@ -309,6 +309,11 @@ export default types
     function afterCreate() {
       ToolsManager.setRoot(self);
 
+      if (self.task && !self.task.can_annotate) {
+        self.annotationStore.annotations.forEach((annotation) => annotation.setEdit(false));
+        ["submit", "update", "annotations:add-new"].forEach((name) => self.toggleInterface(name, false));
+      }
+
       // important thing to detect Area atomatically: it hasn't access to store, only via global
       window.Htx = self;
 

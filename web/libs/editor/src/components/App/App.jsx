@@ -222,6 +222,13 @@ class App extends Component {
     const outlinerEnabled = isFF(FF_DEV_1170);
     const newUIEnabled = isFF(FF_DEV_3873);
 
+    console.warn("[Editor] panel mode", {
+      outlinerEnabled,
+      newUIEnabled,
+      usesSideTabsPanels: outlinerEnabled && newUIEnabled,
+      taskData: store.task?.dataObj,
+    });
+
     return (
       <Block
         name="editor"

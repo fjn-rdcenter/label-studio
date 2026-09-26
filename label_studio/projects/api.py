@@ -3,6 +3,7 @@
 import logging
 import os
 import pathlib
+from datetime import timedelta
 
 import drf_yasg.openapi as openapi
 from core.filters import ListFilter
@@ -18,6 +19,7 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import F
 from django.http import Http404
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django_filters import CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
@@ -26,11 +28,19 @@ from ml.serializers import MLBackendSerializer
 from projects.functions.next_task import get_next_task
 from projects.functions.stream_history import get_label_stream_history
 from projects.functions.utils import recalculate_created_annotations_and_labels_from_scratch
-from projects.models import Project, ProjectImport, ProjectManager, ProjectReimport, ProjectSummary
+from projects.models import Project, ProjectImport, ProjectManager, ProjectMember, ProjectReimport, ProjectSummary
+from projects.permissions import (
+    OrganizationProjectCreatePermission,
+    ProjectAnnotationPermission,
+    ProjectMemberManagePermission,
+    ProjectRolePermission,
+    ProjectTaskPermission,
+)
 from projects.serializers import (
     GetFieldsSerializer,
     ProjectImportSerializer,
     ProjectLabelConfigSerializer,
+    ProjectMemberSerializer,
     ProjectModelVersionExtendedSerializer,
     ProjectReimportSerializer,
     ProjectSerializer,
@@ -41,7 +51,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.exceptions import ValidationError as RestValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework.views import exception_handler
@@ -245,13 +255,14 @@ class ProjectListAPI(generics.ListCreateAPIView):
         POST=all_permissions.projects_create,
     )
     pagination_class = ProjectListPagination
+    permission_classes = api_settings.DEFAULT_PERMISSION_CLASSES + [OrganizationProjectCreatePermission]
 
     def get_queryset(self):
         serializer = GetFieldsSerializer(data=self.request.query_params)
         serializer.is_valid(raise_exception=True)
         fields = serializer.validated_data.get('include')
         filter = serializer.validated_data.get('filter')
-        projects = Project.objects.filter(organization=self.request.user.active_organization).order_by(
+        projects = Project.objects.for_user(self.request.user).order_by(
             F('pinned_at').desc(nulls_last=True), '-created_at'
         )
         if filter in ['pinned_only', 'exclude_pinned']:
@@ -383,6 +394,7 @@ class ProjectAPI(generics.RetrieveUpdateDestroyAPIView):
         PUT=all_permissions.projects_change,
         POST=all_permissions.projects_create,
     )
+    permission_classes = (IsAuthenticated, ProjectRolePermission)
     serializer_class = ProjectSerializer
 
     redirect_route = 'projects:project-detail'
@@ -392,7 +404,9 @@ class ProjectAPI(generics.RetrieveUpdateDestroyAPIView):
         serializer = GetFieldsSerializer(data=self.request.query_params)
         serializer.is_valid(raise_exception=True)
         fields = serializer.validated_data.get('include')
-        return Project.objects.with_counts(fields=fields).filter(organization=self.request.user.active_organization)
+        return Project.objects.with_counts(fields=fields).filter(
+            pk__in=Project.objects.for_user(self.request.user).values('pk')
+        )
 
     def get(self, request, *args, **kwargs):
         return super(ProjectAPI, self).get(request, *args, **kwargs)
@@ -426,6 +440,71 @@ class ProjectAPI(generics.RetrieveUpdateDestroyAPIView):
         return super(ProjectAPI, self).put(request, *args, **kwargs)
 
 
+class ProjectMemberListAPI(GetParentObjectMixin, generics.ListCreateAPIView):
+    serializer_class = ProjectMemberSerializer
+    permission_classes = (IsAuthenticated, ProjectMemberManagePermission)
+    parent_queryset = Project.objects.all()
+
+    def get_queryset(self):
+        project = self.get_parent_object()
+        return project.members.select_related('user').all()
+
+    def perform_create(self, serializer):
+        project = self.get_parent_object()
+        user = serializer.validated_data['user']
+        role = serializer.validated_data.get('role', ProjectMember.Role.ANNOTATOR)
+
+        membership, created = project.members.get_or_create(user=user, defaults={'role': role})
+        if not created:
+            membership.role = role
+            membership.enabled = True
+            membership.save(update_fields=['role', 'enabled'])
+
+        serializer.instance = membership
+
+
+class ProjectMemberAPI(GetParentObjectMixin, generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = ProjectMemberSerializer
+    permission_classes = (IsAuthenticated, ProjectMemberManagePermission)
+    parent_queryset = Project.objects.all()
+    lookup_url_kwarg = 'memberID'
+
+    def get_queryset(self):
+        project = self.get_parent_object()
+        return project.members.select_related('user').all()
+
+    def perform_update(self, serializer):
+        serializer.save()
+
+
+class ProjectReorderAPI(generics.GenericAPIView):
+    queryset = Project.objects.all()
+    permission_classes = (IsAuthenticated, ProjectRolePermission)
+
+    def post(self, request, *args, **kwargs):
+        project = self.get_object()
+        direction = request.data.get('direction')
+        if direction not in ('up', 'down'):
+            raise RestValidationError({'direction': 'Expected either "up" or "down".'})
+
+        projects = list(
+            Project.objects.filter(organization=project.organization)
+            .order_by(F('pinned_at').desc(nulls_last=True), '-created_at')
+            .values_list('id', flat=True)
+        )
+        current_index = projects.index(project.id)
+        neighbor_index = current_index - 1 if direction == 'up' else current_index + 1
+
+        if 0 <= neighbor_index < len(projects):
+            projects[current_index], projects[neighbor_index] = projects[neighbor_index], projects[current_index]
+
+        now = timezone.now()
+        for index, project_id in enumerate(projects):
+            Project.objects.filter(id=project_id).update(pinned_at=now - timedelta(seconds=index))
+
+        return Response({'project_ids': projects}, status=status.HTTP_200_OK)
+
+
 @method_decorator(
     name='get',
     decorator=swagger_auto_schema(
@@ -445,6 +524,7 @@ class ProjectAPI(generics.RetrieveUpdateDestroyAPIView):
 )  # leaving this method decorator info in case we put it back in swagger API docs
 class ProjectNextTaskAPI(generics.RetrieveAPIView):
     permission_required = all_permissions.tasks_view
+    permission_classes = (IsAuthenticated, ProjectAnnotationPermission)
     serializer_class = TaskWithAnnotationsAndPredictionsAndDraftsSerializer  # using it for swagger API docs
     queryset = Project.objects.all()
     swagger_schema = None  # this endpoint doesn't need to be in swagger API docs
@@ -708,6 +788,7 @@ class ProjectTaskListAPI(GetParentObjectMixin, generics.ListCreateAPIView, gener
         POST=all_permissions.tasks_change,
         DELETE=all_permissions.tasks_delete,
     )
+    permission_classes = api_settings.DEFAULT_PERMISSION_CLASSES + [ProjectTaskPermission]
     serializer_class = TaskSerializer
     redirect_route = 'projects:project-settings'
     redirect_kwarg = 'pk'

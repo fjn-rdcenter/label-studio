@@ -184,6 +184,7 @@ export class LSFWrapper {
       onStorageInitialized: this.onStorageInitialized,
       onSubmitAnnotation: this.onSubmitAnnotation,
       onUpdateAnnotation: this.onUpdateAnnotation,
+      onChangeAnnotationQualityLevel: this.onChangeAnnotationQualityLevel,
       onDeleteAnnotation: this.onDeleteAnnotation,
       onSkipTask: this.onSkipTask,
       onUnskipTask: this.onUnskipTask,
@@ -630,6 +631,39 @@ export class LSFWrapper {
     } else {
       await this.loadTask(this.task.id, annotation.pk, true);
     }
+  };
+
+  onChangeAnnotationQualityLevel = async (_ls, annotation, qualityLevel) => {
+    const taskID = this.task.id;
+    const annotationID = Number(annotation.pk);
+    const response = await this.datamanager.apiCall(
+      "updateAnnotation",
+      { taskID, annotationID },
+      { body: { quality_level: qualityLevel } },
+    );
+    const status = response?.$meta?.status;
+    if (status !== 200 && status !== 201) {
+      this.datamanager.invoke("toast", { message: "Unable to change annotation status", type: "error" });
+      return false;
+    }
+
+    annotation.setQualityLevel(qualityLevel);
+    const taskAnnotations = this.task.annotations;
+    if (Array.isArray(taskAnnotations)) {
+      const taskAnnotation = taskAnnotations.find((item) => Number(item.id) === annotationID);
+      if (taskAnnotation) taskAnnotation.quality_level = qualityLevel;
+      const activeLevels = taskAnnotations
+        .filter((item) => !item.was_cancelled)
+        .map((item) => item.quality_level ?? 0);
+      this.task.quality_level = Math.max(0, ...activeLevels);
+    } else {
+      this.task.quality_level = qualityLevel;
+    }
+    this.datamanager.invoke("toast", {
+      message: qualityLevel === 3 ? "Task confirmed" : "Task returned to Reviewed",
+      type: "info",
+    });
+    return true;
   };
 
   deleteDraft = async (id) => {

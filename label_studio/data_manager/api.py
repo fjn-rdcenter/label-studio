@@ -23,11 +23,15 @@ from django.utils.decorators import method_decorator
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
+from organizations.models import OrganizationMember
 from projects.models import Project
+from projects.models import ProjectMember
+from projects.permissions import ProjectActionsPermission
 from projects.serializers import ProjectSerializer
 from rest_framework import generics, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from tasks.models import Annotation, Prediction, Task
@@ -45,6 +49,54 @@ _view_request_body = openapi.Schema(
         'project': openapi.Schema(type=openapi.TYPE_INTEGER, description='Project ID'),
     },
 )
+
+
+class DataManagerProjectRolePermission(BasePermission):
+    def get_project(self, request, view):
+        project_id = request.query_params.get('project') or request.data.get('project')
+        if project_id:
+            try:
+                return Project.objects.select_related('organization').filter(pk=project_id).first()
+            except (TypeError, ValueError):
+                return None
+
+        view_id = view.kwargs.get('pk') or request.query_params.get('view')
+        if view_id:
+            try:
+                data_view = View.objects.select_related('project__organization').filter(pk=view_id).first()
+            except (TypeError, ValueError):
+                return None
+            return data_view.project if data_view else None
+
+        return None
+
+    @staticmethod
+    def is_member_or_admin(project, user):
+        return bool(
+            project
+            and (
+                project.organization.has_role(user, OrganizationMember.Role.ADMIN)
+                or project.has_role(user, ProjectMember.Role.ANNOTATOR)
+                or project.has_role(user, ProjectMember.Role.MANAGER)
+            )
+        )
+
+    def has_permission(self, request, view):
+        if not getattr(request.user, 'is_authenticated', False):
+            return False
+
+        project = self.get_project(request, view)
+        if request.method in SAFE_METHODS:
+            return self.is_member_or_admin(project, request.user)
+
+        return bool(project and project.has_role(request.user, ProjectMember.Role.MANAGER))
+
+    def has_object_permission(self, request, view, obj):
+        project = getattr(obj, 'project', obj)
+        if request.method in SAFE_METHODS:
+            return self.is_member_or_admin(project, request.user)
+
+        return bool(project and project.has_role(request.user, ProjectMember.Role.MANAGER))
 
 
 @method_decorator(
@@ -137,6 +189,7 @@ class ViewAPI(viewsets.ModelViewSet):
     serializer_class = ViewSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['project']
+    permission_classes = (DataManagerProjectRolePermission,)
     permission_required = ViewClassPermission(
         GET=all_permissions.tasks_view,
         POST=all_permissions.tasks_change,
@@ -243,6 +296,7 @@ class TaskPagination(PageNumberPagination):
 
 class TaskListAPI(generics.ListCreateAPIView):
     task_serializer_class = DataManagerTaskSerializer
+    permission_classes = (DataManagerProjectRolePermission,)
     permission_required = ViewClassPermission(
         GET=all_permissions.tasks_view,
         POST=all_permissions.tasks_change,
@@ -526,6 +580,7 @@ class ProjectActionsAPI(APIView):
         GET=all_permissions.projects_view,
         POST=all_permissions.projects_view,
     )
+    permission_classes = (ProjectActionsPermission,)
 
     def get(self, request):
         pk = int_from_request(request.GET, 'project', 1)  # replace 1 to None, it's for debug only

@@ -132,6 +132,7 @@ export const ProjectsPage = () => {
               totalItems={totalItems}
               loadNextPage={loadNextPage}
               pageSize={defaultPageSize}
+              onProjectMoved={fetchProjects}
             />
           ) : (
             <EmptyProjectsList openModal={openModal} />

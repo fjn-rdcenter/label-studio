@@ -58,6 +58,7 @@ const SideTabsPanelsComponent: FC<SidePanelsProps> = ({
   showComments,
   focusTab,
 }) => {
+  console.log("currentEntity:", currentEntity);
   const snapThreshold = 5;
   const regions = currentEntity.regionStore;
   const viewportSize = useRef<ViewportSize>({ width: 0, height: 0 });
@@ -77,6 +78,14 @@ const SideTabsPanelsComponent: FC<SidePanelsProps> = ({
   const [breakPointActiveTab, setBreakPointActiveTab] = useState(0);
   const localSnap = useRef(snap);
   const collapsedSideRef = useRef(collapsedSide);
+
+  console.log("[EmbryoPanel] enable check", {
+    taskData: currentEntity.store?.task?.dataObj,
+    timelapse,
+    timelapseIsArray: Array.isArray(timelapse),
+    timelapseLength: Array.isArray(timelapse) ? timelapse.length : undefined,
+    embryoEnabled,
+  });
 
   collapsedSideRef.current = collapsedSide;
   localSnap.current = snap;

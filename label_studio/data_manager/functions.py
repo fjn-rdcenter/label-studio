@@ -80,6 +80,24 @@ def get_all_columns(project, *_):
     result['columns'] += [
         # --- Tasks ---
         {
+            'id': 'quality_level',
+            'title': 'Label status',
+            'type': 'Number',
+            'help': 'Highest labeling review level for this task',
+            'target': 'tasks',
+            'filterable': True,
+            'schema': {
+                'items': [
+                    {'value': 0, 'title': 'Not labeled'},
+                    {'value': 1, 'title': 'Annotator'},
+                    {'value': 2, 'title': 'Reviewed'},
+                    {'value': 3, 'title': 'Confirmed'},
+                ]
+            },
+            'visibility_defaults': {'explore': True, 'labeling': True},
+            'project_defined': False,
+        },
+        {
             'id': 'id',
             'title': 'ID',
             'type': 'Number',

@@ -563,6 +563,11 @@ AnnotationMixin = load_func(settings.ANNOTATION_MIXIN)
 class Annotation(AnnotationMixin, models.Model):
     """Annotations & Labeling results"""
 
+    class QualityLevel(models.IntegerChoices):
+        ANNOTATOR = 1, _('Annotator')
+        REVIEWER = 2, _('Reviewer')
+        MANAGER = 3, _('Manager')
+
     objects = AnnotationManager()
 
     result = JSONField(
@@ -570,6 +575,20 @@ class Annotation(AnnotationMixin, models.Model):
         null=True,
         default=None,
         help_text='The main value of annotator work - ' 'labeling result in JSON format',
+    )
+    quality_level = models.PositiveSmallIntegerField(
+        _('quality level'),
+        choices=QualityLevel.choices,
+        default=QualityLevel.ANNOTATOR,
+        help_text='Label review level: annotator, reviewer, or manager.',
+    )
+    quality_updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name='quality_annotations',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text='User who last changed the label review level.',
     )
 
     task = models.ForeignKey(

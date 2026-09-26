@@ -74,12 +74,44 @@ class ProjectMixin:
             tasks_number_changed,
         )
 
+    def get_role(self, user):
+        if user is None or not getattr(user, 'is_authenticated', False):
+            return None
+
+        if getattr(self, 'organization', None) is None or not self.organization.has_permission(user):
+            return None
+        if self.organization.has_role(user, 'AD'):
+            return None
+        if getattr(self, 'created_by_id', None) == getattr(user, 'id', None):
+            return 'MA'
+
+        membership = self.members.filter(user=user, enabled=True).first() if hasattr(self, 'members') else None
+        if membership is not None:
+            return membership.role
+
+        return None
+
+    def has_role(self, user, min_role='AN'):
+        role = self.get_role(user)
+        if role is None:
+            return None
+
+        capabilities = {
+            'AN': {'AN', 'RE'},
+            'RE': {'RE'},
+            'MA': {'MA', 'AD'},
+        }
+        if min_role in capabilities:
+            return role in capabilities[min_role]
+
+        return False
+
     def has_permission(self, user):
         """
-        Dummy stub for has_permission
+        Object-write permission for project members; read-only organization Admin access is handled separately.
         """
         user.project = self  # link for activity log
-        return True
+        return bool(self.has_role(user, 'AN') or self.has_role(user, 'MA'))
 
     def _can_use_overlap(self):
         """

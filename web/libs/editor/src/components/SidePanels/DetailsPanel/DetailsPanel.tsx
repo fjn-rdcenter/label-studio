@@ -1,7 +1,9 @@
 import { inject, observer } from "mobx-react";
-import type { FC } from "react";
+import { getEnv } from "mobx-state-tree";
+import { useState, type FC } from "react";
 import { Block, Elem } from "../../../utils/bem";
 import { FF_DEV_2290, isFF } from "../../../utils/feature-flags";
+import { Button } from "../../../common/Button/Button";
 import { Comments as CommentsComponent } from "../../Comments/Comments";
 import { AnnotationHistory } from "../../CurrentEntity/AnnotationHistory";
 import { PanelBase, type PanelProps } from "../PanelBase";
@@ -42,6 +44,51 @@ const DetailsComponent: FC<DetailsPanelProps> = ({ currentEntity, regions }) => 
 const Content: FC<any> = observer(({ selection, currentEntity }) => {
   return <>{selection.size ? <RegionsPanel regions={selection} /> : <GeneralPanel currentEntity={currentEntity} />}</>;
 });
+
+const QualityLevel: FC<{ currentEntity: any; store: any }> = ({ currentEntity, store }) => {
+  const [changing, setChanging] = useState(false);
+  const annotation = store.annotationStore.selected ?? currentEntity;
+  const level = Math.min(Math.max(annotation?.quality_level ?? currentEntity?.quality_level ?? 1, 1), 3);
+  const labels = {
+    1: "Level 1: Annotator",
+    2: "Level 2: Reviewed",
+    3: "Level 3: Confirmed",
+  };
+  const canChange =
+    store.task?.can_manage_annotation_quality &&
+    annotation?.pk &&
+    [2, 3].includes(level) &&
+    getEnv(store).events.hasEvent("changeAnnotationQualityLevel");
+
+  const changeStatus = async () => {
+    if (!canChange || changing) return;
+    setChanging(true);
+    try {
+      await getEnv(store).events.invokeFirst(
+        "changeAnnotationQualityLevel",
+        store,
+        annotation,
+        level === 2 ? 3 : 2,
+      );
+    } finally {
+      setChanging(false);
+    }
+  };
+
+  return (
+    <Elem name="section">
+      <Elem name="section-head">Labeling status</Elem>
+      <Elem name="section-content">
+        {labels[level]}
+        {canChange ? (
+          <Button disabled={changing} look="primary" size="small" onClick={changeStatus}>
+            {changing ? "Updating..." : level === 2 ? "Confirm" : "Return to Reviewed"}
+          </Button>
+        ) : null}
+      </Elem>
+    </Elem>
+  );
+};
 
 const CommentsTab: FC<any> = inject("store")(
   observer(({ store }) => {
@@ -95,6 +142,7 @@ const HistoryTab: FC<any> = inject("store")(
     return (
       <>
         <Block name="history">
+          <QualityLevel store={store} currentEntity={currentEntity} />
           {!showDraftInHistory ? (
             <DraftPanel item={currentEntity} />
           ) : (
@@ -137,6 +185,7 @@ const GeneralPanel: FC<any> = inject("store")(
 
     return (
       <>
+        <QualityLevel store={store} currentEntity={currentEntity} />
         {!showDraftInHistory ? (
           <DraftPanel item={currentEntity} />
         ) : (

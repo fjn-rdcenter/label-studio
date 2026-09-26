@@ -6,6 +6,7 @@ import { GeneralSettings } from "./GeneralSettings";
 import { AnnotationSettings } from "./AnnotationSettings";
 import { LabelingSettings } from "./LabelingSettings";
 import { MachineLearningSettings } from "./MachineLearningSettings/MachineLearningSettings";
+import { MembersSettings } from "./MembersSettings/MembersSettings";
 import { PredictionsSettings } from "./PredictionsSettings/PredictionsSettings";
 import { StorageSettings } from "./StorageSettings/StorageSettings";
 import { isInLicense, LF_CLOUD_STORAGE_FOR_MANAGERS } from "../../utils/license-flags";
@@ -17,6 +18,7 @@ export const MenuLayout = ({ children, ...routeProps }) => {
     <SidebarMenu
       menuItems={[
         GeneralSettings,
+        MembersSettings,
         LabelingSettings,
         AnnotationSettings,
         MachineLearningSettings,
@@ -32,6 +34,7 @@ export const MenuLayout = ({ children, ...routeProps }) => {
 };
 
 const pages = {
+  MembersSettings,
   AnnotationSettings,
   LabelingSettings,
   MachineLearningSettings,

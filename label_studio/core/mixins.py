@@ -30,7 +30,9 @@ class GetParentObjectMixin:
             queryset = queryset.all()
 
         # Perform the lookup filtering.
-        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        lookup_url_kwarg = getattr(self, 'parent_lookup_url_kwarg', None) or (
+            'pk' if 'pk' in self.kwargs else self.lookup_url_kwarg or self.lookup_field
+        )
 
         assert lookup_url_kwarg in self.kwargs, (
             'Expected view %s to be called with a URL keyword argument '

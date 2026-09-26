@@ -7,6 +7,8 @@ export const API_CONFIG = {
 
     // Organization
     memberships: "/organizations/:pk/memberships",
+    organization: "/organizations/:pk",
+    updateOrganizationMembership: "PATCH:/organizations/:pk/memberships/:user_pk/",
     inviteLink: "/invite",
     resetInviteLink: "POST:/invite/reset-token",
 
@@ -16,6 +18,11 @@ export const API_CONFIG = {
     updateProject: "PATCH:/projects/:pk",
     createProject: "POST:/projects",
     deleteProject: "DELETE:/projects/:pk",
+    reorderProject: "POST:/projects/:pk/reorder",
+    projectMembers: "/projects/:pk/members/",
+    addProjectMember: "POST:/projects/:pk/members/",
+    updateProjectMember: "PATCH:/projects/:pk/members/:memberID/",
+    deleteProjectMember: "DELETE:/projects/:pk/members/:memberID/",
     projectResetCache: "POST:/projects/:pk/summary/reset",
 
     // Presigning

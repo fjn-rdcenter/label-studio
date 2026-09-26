@@ -56,6 +56,10 @@ export interface APITask {
 
   is_labeled?: boolean;
   overlap?: number;
+  can_annotate?: boolean;
+  can_manage_annotation_quality?: boolean;
+  quality_level?: number;
+  quality_level_change_ids?: number[];
 
   project?: number | null;
 
@@ -67,6 +71,10 @@ export interface APITask {
 export interface LSFTaskData {
   id: number;
   data: any;
+  can_annotate?: boolean;
+  can_manage_annotation_quality?: boolean;
+  quality_level?: number;
+  quality_level_change_ids?: number[];
   createdAt?: DateTime;
   annotations: LSFAnnotationData[];
   predictions: LSFAnnotationData[];

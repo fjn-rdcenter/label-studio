@@ -35,6 +35,7 @@ from django.db.models import Avg, BooleanField, Case, Count, JSONField, Max, Q, 
 from django.utils.translation import gettext_lazy as _
 from label_studio_sdk._extensions.label_studio_tools.core.label_config import parse_config
 from labels_manager.models import Label
+from organizations.models import OrganizationMember
 from projects.functions import (
     annotate_finished_task_number,
     annotate_ground_truth_number,
@@ -82,7 +83,16 @@ class ProjectManager(models.Manager):
     }
 
     def for_user(self, user):
-        return self.filter(organization=user.active_organization)
+        if not getattr(user, 'active_organization_id', None):
+            return self.none()
+
+        queryset = self.filter(organization_id=user.active_organization_id)
+        if user.active_organization.has_role(user, OrganizationMember.Role.ADMIN):
+            return queryset
+
+        return queryset.filter(
+            models.Q(created_by=user) | models.Q(members__user=user, members__enabled=True)
+        ).distinct()
 
     def with_counts(self, fields=None):
         return self.with_counts_annotate(self, fields=fields)
@@ -391,16 +401,23 @@ class Project(ProjectMixin, models.Model):
         self.token = create_hash()
         self.save(update_fields=['token'])
 
-    def add_collaborator(self, user):
+    def add_collaborator(self, user, role=None):
         created = False
         with transaction.atomic():
             try:
-                ProjectMember.objects.get(user=user, project=self)
+                membership = ProjectMember.objects.get(user=user, project=self)
             except ProjectMember.DoesNotExist:
-                ProjectMember.objects.create(user=user, project=self)
+                membership = ProjectMember.objects.create(
+                    user=user, project=self, role=role or ProjectMember.Role.ANNOTATOR
+                )
                 created = True
             else:
                 logger.debug(f'Project membership {self} for user {user} already exists')
+
+            if role is not None and membership.role != role:
+                membership.role = role
+                membership.save(update_fields=['role'])
+
         return created
 
     def has_collaborator(self, user):
@@ -1114,14 +1131,32 @@ class LabelStreamHistory(models.Model):
 
 
 class ProjectMember(models.Model):
+    class Role(models.TextChoices):
+        ADMIN = 'AD', _('Admin')
+        MANAGER = 'MA', _('Manager')
+        REVIEWER = 'RE', _('Reviewer')
+        ANNOTATOR = 'AN', _('Annotator')
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='project_memberships', help_text='User ID'
     )
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='members', help_text='Project ID')
+    role = models.CharField(
+        max_length=2,
+        choices=Role.choices,
+        default=Role.ANNOTATOR,
+        help_text='Project role of the member',
+    )
     enabled = models.BooleanField(default=True, help_text='Project member is enabled')
     created_at = models.DateTimeField(_('created at'), auto_now_add=True)
     updated_at = models.DateTimeField(_('updated at'), auto_now=True)
+
+    def has_permission(self, user):
+        user.project = self.project  # link for activity log
+        return self.project.has_permission(user)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'project'], name='unique_project_member')]
 
 
 class ProjectSummary(models.Model):
