@@ -83,6 +83,7 @@
   padding: 12px;
 }
 
+// Lưới hai cột hiển thị các nhãn Object lấy từ control hình ảnh của project.
 .labelGrid {
   display: grid;
   gap: 8px;
@@ -225,6 +226,7 @@
   margin: 8px 0;
 }
 
+// Danh sách Event theo frame; mỗi hàng gồm checkbox, tên Event và thời điểm đã gán.
 .eventList {
   display: flex;
   flex-direction: column;
@@ -264,6 +266,7 @@
   white-space: pre-wrap;
 }
 
+// Xếp dọc các Choices/TextArea có tên clinical-* để hỗ trợ số lượng trường tùy biến theo project.
 .clinicalForm {
   display: flex;
   flex-direction: column;
@@ -286,5 +289,30 @@
     border-radius: 5px;
     color: #172033;
     padding: 8px;
+  }
+}
+
+// Choices loại multiple dùng fieldset riêng để gom tiêu đề và các checkbox cùng một trường Clinical.
+.clinicalChoices {
+  border: 0;
+  color: #475467;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+
+  legend {
+    // Tiêu đề lấy từ label/Header hoặc được suy ra từ tên control.
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  label {
+    // Checkbox và nội dung lựa chọn nằm trên cùng một hàng, khác layout dọc của input/select thường.
+    align-items: center;
+    flex-direction: row;
+    font-weight: 400;
   }
 }

@@ -11,7 +11,6 @@
            highlightAnnotationMark="true"/>
 
     <View style="display:none">
-      <Header value="2. RECTANGLE - Manual box"/>
       <RectangleLabels name="rect-{{idx}}" toName="timelapse_{{idx}}" smart="false"
                        fillOpacity="0.15" strokeWidth="2">
         <Label value="PN" background="#2563EB"/>
@@ -32,7 +31,6 @@
     </View>
 
     <View style="display:none">
-      <Header value="3. POLYGON - Manual or OpenCV Detect"/>
       <PolygonLabels name="pl-{{idx}}" toName="timelapse_{{idx}}" smart="true"
                      fillOpacity="0.2" strokeWidth="2"
                      pointStyle="circle" pointSize="small">
@@ -54,7 +52,6 @@
     </View>
 
     <View style="display:none">
-      <Header value="4. ELLIPSE - Manual ellipse"/>
       <EllipseLabels name="ellipse-{{idx}}" toName="timelapse_{{idx}}" smart="false"
                      fillOpacity="0.15" strokeWidth="2">
         <Label value="PN" background="#F59E0B"/>
@@ -63,7 +60,6 @@
     </View>
 
     <View style="display:none">
-      <Header value="5. KEYPOINT - Manual point"/>
       <KeyPointLabels name="kp-{{idx}}" toName="timelapse_{{idx}}" smart="false">
         <Label value="PN" background="#7C3AED"/>
         <Label value="Membrane" background="#EC4899"/>
@@ -89,6 +85,28 @@
     </Choices>
   </View>
   <View style="display:none">
-    <TextArea name="clinical-manual" toName="text" rows="1" maxSubmissions="1"/>
+    <Choices name="clinical-pn" toName="text" choice="single">
+      <Header value="PN"/>
+      <Choice value="0"/><Choice value="1"/><Choice value="2"/><Choice value="3"/>
+      <Choice value="4"/><Choice value="5"/><Choice value="Multi"/><Choice value="Deg"/>
+    </Choices>
+    <Choices name="clinical-micropn" toName="text" choice="single">
+      <Header value="MicroPN"/>
+      <Choice value="Yes"/><Choice value="No"/>
+    </Choices>
+    <Choices name="clinical-type-of-dc" toName="text" choice="single">
+      <Header value="Type of DC"/>
+      <Choice value="DC1"/><Choice value="DC2"/><Choice value="Normal"/>
+    </Choices>
+    <Choices name="clinical-type-of-rc" toName="text" choice="single">
+      <Header value="Type of RC"/>
+      <Choice value="RC1"/><Choice value="RC2"/><Choice value="Normal"/>
+    </Choices>
+    <TextArea name="clinical-gardner" toName="text" label="Gardner" rows="1" maxSubmissions="1"/>
+    <Choices name="clinical-et-decision" toName="text" choice="single">
+      <Header value="ET decision"/>
+      <Choice value="Discard"/><Choice value="cryopreservation"/><Choice value="embryo transfer"/>
+    </Choices>
+    <TextArea name="clinical-extended-pb" toName="text" label="PB" rows="1" maxSubmissions="1"/>
   </View>
 </View>
