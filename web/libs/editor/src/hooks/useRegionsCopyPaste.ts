@@ -31,12 +31,67 @@ export const useRegionsCopyPaste = (entity: any) => {
       ev.preventDefault();
     };
 
+    const retargetToCurrentImage = (results: any[]) => {
+      const mountedImages = entity.objects.filter((object: any) => {
+        if (object.type !== "image") return false;
+
+        return object.containerRef?.isConnected || object.stageRef?.container()?.isConnected;
+      });
+
+      if (mountedImages.length !== 1) return results;
+
+      const targetImage = mountedImages[0];
+      const targetControls = entity.toNames.get(targetImage.name) ?? [];
+      const mappings = new Map<any, any>();
+
+      for (const result of results) {
+        const sourceImage = entity.names.get(result.to_name);
+
+        if (sourceImage?.type !== "image") continue;
+
+        const sourceControl = entity.names.get(result.from_name);
+        const resultType = sourceControl?.resultType ?? result.type;
+        const sourceControls = (entity.toNames.get(sourceImage.name) ?? []).filter(
+          (control: any) => control.resultType === resultType,
+        );
+        const matchingTargetControls = targetControls.filter((control: any) => control.resultType === resultType);
+        const sourceControlIndex = sourceControls.indexOf(sourceControl);
+        const targetControl = matchingTargetControls[sourceControlIndex >= 0 ? sourceControlIndex : 0];
+
+        if (!targetControl) return results;
+        mappings.set(result, targetControl);
+      }
+
+      const imageEntity = targetImage.currentImageEntity;
+
+      return results.map((result: any) => {
+        const targetControl = mappings.get(result);
+
+        if (!targetControl) return result;
+
+        const retargeted = {
+          ...result,
+          from_name: targetControl.name,
+          to_name: targetImage.name,
+          original_width: imageEntity?.naturalWidth ?? result.original_width,
+          original_height: imageEntity?.naturalHeight ?? result.original_height,
+          image_rotation: imageEntity?.rotation ?? result.image_rotation,
+        };
+
+        if (targetImage.multiImage) retargeted.item_index = targetImage.currentItemIndex;
+        else delete retargeted.item_index;
+
+        return retargeted;
+      });
+    };
+
     const pasteFromClipboard = (ev: ClipboardEvent) => {
       const { clipboardData } = ev;
       const data = clipboardData?.getData("application/json");
 
       try {
-        const results = (data ? JSON.parse(data) : []).map((res: any) => {
+        const parsedResults = data ? JSON.parse(data) : [];
+        const results = retargetToCurrentImage(parsedResults).map((res: any) => {
           return { ...res, readonly: false };
         });
 
