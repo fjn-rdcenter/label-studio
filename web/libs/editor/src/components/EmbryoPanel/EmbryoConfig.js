@@ -25,6 +25,15 @@ export const childDisplayValue = (child) => child?._value || child?.value || chi
 export const findChildByResultValue = (control, value) =>
   control?.tiedChildren?.find((child) => sameResultValue(childResultValue(child), value));
 
+// Chỉ kích hoạt nhãn trên control sẽ tạo region. Nếu cùng nhãn còn được chọn trên Rectangle,
+// Ellipse hoặc Keypoint thì OpenCV có thể gắn tất cả kết quả đó vào một Polygon region.
+export const activateObjectLabel = (controls, sourceControl, value) => {
+  controls.forEach((control) => {
+    control.unselectAll();
+    if (control === sourceControl) findChildByResultValue(control, value)?.setSelected(true);
+  });
+};
+
 // Lấy các control tạo vùng của frame hiện tại và sắp xếp theo thứ tự công cụ ưu tiên ở trên.
 export const getObjectControls = (item) =>
   (item?.states?.() || [])

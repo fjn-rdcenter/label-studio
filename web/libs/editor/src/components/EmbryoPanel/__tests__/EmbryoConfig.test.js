@@ -1,4 +1,5 @@
 import {
+  activateObjectLabel,
   childResultValue,
   findChildByResultValue,
   getClinicalControls,
@@ -35,6 +36,20 @@ describe("EmbryoPanel config discovery", () => {
     };
 
     expect(getObjectLabels(item)).toMatchObject([{ control: { name: "polygon" }, value: "PN" }]);
+  });
+
+  it("activates an object label only on the control that creates the region", () => {
+    const polygonLabel = { setSelected: jest.fn() };
+    const polygon = { tiedChildren: [{ ...polygonLabel, value: "PN" }], unselectAll: jest.fn() };
+    const rectangleLabel = { setSelected: jest.fn(), value: "PN" };
+    const rectangle = { tiedChildren: [rectangleLabel], unselectAll: jest.fn() };
+
+    activateObjectLabel([polygon, rectangle], polygon, "PN");
+
+    expect(polygon.unselectAll).toHaveBeenCalledTimes(1);
+    expect(rectangle.unselectAll).toHaveBeenCalledTimes(1);
+    expect(polygon.tiedChildren[0].setSelected).toHaveBeenCalledWith(true);
+    expect(rectangleLabel.setSelected).not.toHaveBeenCalled();
   });
 
   it("discovers custom event controls attached to a frame", () => {

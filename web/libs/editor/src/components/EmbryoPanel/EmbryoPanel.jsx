@@ -11,6 +11,7 @@ import {
 } from "../../assets/icons";
 import { getEmbryoNavigation, subscribeEmbryoNavigation } from "./EmbryoNavigation";
 import {
+  activateObjectLabel,
   childDisplayValue,
   childResultValue,
   findChildByResultValue,
@@ -104,15 +105,9 @@ const ObjectTab = observer(({ currentEntity, item }) => {
   }, [item.currentImage, regions.length]);
 
   const selectLabel = ({ control: sourceControl, value }) => {
-    // Bỏ chọn region cũ rồi chọn cùng một nhãn trên mọi control hình học có hỗ trợ nhãn đó.
+    // Bỏ chọn region cũ và chỉ bật nhãn trên control sẽ tạo region để OpenCV không gắn nhãn trùng.
     item.annotation.unselectAreas();
-    objectControls.forEach((control) => {
-      const matchingLabel = findChildByResultValue(control, value);
-
-      if (!matchingLabel) return;
-      control.unselectAll();
-      matchingLabel.setSelected(true);
-    });
+    activateObjectLabel(objectControls, sourceControl, value);
 
     // Giữ công cụ hiện tại nếu thuộc đúng control; nếu không thì chọn công cụ mặc định của control nguồn.
     const manager = item.getToolsManager();

@@ -104,7 +104,9 @@ class ToolsManager {
 
     // if there are no tools selected, there are no specific labels to unselect
     // also this will skip annotation init
-    if (currentTool && newSelection === "segmentation") {
+    // OpenCV also creates a segmentation region, so incompatible shape labels must be cleared
+    // before its prompt polygon is created.
+    if (currentTool && ["segmentation", "opencv"].includes(newSelection)) {
       const toolType = tool.control.type.replace(/labels$/, "");
       const currentLabels = tool.obj.activeStates();
       const selectedValues = currentTool.control?.selectedValues?.() ?? [];
