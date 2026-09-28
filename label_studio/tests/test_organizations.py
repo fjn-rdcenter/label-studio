@@ -81,6 +81,27 @@ def test_new_project_creator_gets_explicit_manager_membership(business_client):
 
 
 @pytest.mark.django_db
+def test_project_response_exposes_member_management_capability(business_client):
+    organization = business_client.organization
+    project = make_project({'title': 'Member capability'}, business_client.user, use_ml_backend=False, org=organization)
+
+    manager = User.objects.create(email='members-manager@example.com')
+    organization.add_user(manager)
+    project.add_collaborator(manager, role=ProjectMember.Role.MANAGER)
+
+    reviewer = User.objects.create(email='members-reviewer@example.com')
+    organization.add_user(reviewer)
+    project.add_collaborator(reviewer, role=ProjectMember.Role.REVIEWER)
+
+    for user, expected in ((business_client.user, True), (manager, True), (reviewer, False)):
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.get(f'/api/projects/{project.id}/')
+        assert response.status_code == 200, response.content
+        assert response.json()['can_manage_members'] is expected
+
+
+@pytest.mark.django_db
 def test_project_delete_permissions_are_admin_or_project_manager(business_client):
     organization = business_client.organization
     business_client.user.active_organization = organization

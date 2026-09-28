@@ -18,6 +18,8 @@ const ROLE_OPTIONS = [
 export const MembersSettings = () => {
   const api = useAPI();
   const { project } = useProject();
+  const callApi = api.callApi;
+  const canManageMembers = project.can_manage_members === true;
   const [members, setMembers] = useState(null);
   const [orgUsers, setOrgUsers] = useState([]);
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -25,21 +27,35 @@ export const MembersSettings = () => {
 
   const fetchMembers = useCallback(async () => {
     if (!project.id) return;
+    if (!canManageMembers) {
+      setMembers([]);
+      setOrgUsers([]);
+      return;
+    }
 
-    const response = await api.callApi("projectMembers", { params: { pk: project.id } });
+    const response = await callApi("projectMembers", {
+      params: { pk: project.id },
+      errorFilter: (result) => result.status === 403,
+    });
 
-    if (Array.isArray(response)) setMembers(response);
-  }, [api, project.id]);
+    setMembers(Array.isArray(response) ? response : []);
+  }, [callApi, canManageMembers, project.id]);
 
   const fetchOrgUsers = useCallback(async () => {
-    const currentUser = await api.callApi("me");
+    if (!canManageMembers) return;
+
+    const currentUser = await callApi("me");
     const organizationId = currentUser?.active_organization;
     if (!organizationId) return;
 
-    const response = await api.callApi("memberships", { params: { pk: organizationId, page_size: 1000 } });
+    const response = await callApi("memberships", {
+      params: { pk: organizationId, page_size: 1000 },
+      errorFilter: (result) => result.status === 403,
+    });
 
     if (response?.results) setOrgUsers(response.results.map(({ user }) => user));
-  }, [api]);
+    else setOrgUsers([]);
+  }, [callApi, canManageMembers]);
 
   useEffect(() => {
     fetchMembers();
@@ -56,24 +72,24 @@ export const MembersSettings = () => {
     if (!selectedUserId) return;
 
     setBusy(true);
-    await api.callApi("addProjectMember", {
+    await callApi("addProjectMember", {
       params: { pk: project.id },
       body: { user_id: Number(selectedUserId), role: "AN" },
     });
     setSelectedUserId("");
     setBusy(false);
     await fetchMembers();
-  }, [api, project.id, selectedUserId, fetchMembers]);
+  }, [callApi, project.id, selectedUserId, fetchMembers]);
 
   const changeRole = useCallback(
     async (memberId, role) => {
-      await api.callApi("updateProjectMember", {
+      await callApi("updateProjectMember", {
         params: { pk: project.id, memberID: memberId },
         body: { role },
       });
       await fetchMembers();
     },
-    [api, project.id, fetchMembers],
+    [callApi, project.id, fetchMembers],
   );
 
   const removeMember = useCallback(
@@ -84,12 +100,12 @@ export const MembersSettings = () => {
         okText: "Remove",
         buttonLook: "destructive",
         onOk: async () => {
-          await api.callApi("deleteProjectMember", { params: { pk: project.id, memberID: member.id } });
+          await callApi("deleteProjectMember", { params: { pk: project.id, memberID: member.id } });
           await fetchMembers();
         },
       });
     },
-    [api, project.id, fetchMembers],
+    [callApi, project.id, fetchMembers],
   );
 
   return (
@@ -97,24 +113,28 @@ export const MembersSettings = () => {
       <h1>Members</h1>
       <Label description="Assign Manager, Reviewer, or Annotator access for this project." />
 
-      <Elem name="controls">
-        <Space>
-          <div style={{ display: "flex", gap: "328px" }}>
-          <Select
-            placeholder="Select a user to add..."
-            value={selectedUserId}
-            onChange={(e) => setSelectedUserId(e.target.value)}
-            options={availableUsers.map((user) => ({ value: String(user.id), label: user.email }))}
-            style={{ width: 320 }}
-          />
-          <Button primary disabled={!selectedUserId || busy} waiting={busy} onClick={addMember}>
-            Add Member
-          </Button>
-        </div>
-        </Space>
-      </Elem>
+      {canManageMembers ? (
+        <Elem name="controls">
+          <Space>
+            <div style={{ display: "flex", gap: "328px" }}>
+              <Select
+                placeholder="Select a user to add..."
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+                options={availableUsers.map((user) => ({ value: String(user.id), label: user.email }))}
+                style={{ width: 320 }}
+              />
+              <Button primary disabled={!selectedUserId || busy} waiting={busy} onClick={addMember}>
+                Add Member
+              </Button>
+            </div>
+          </Space>
+        </Elem>
+      ) : null}
 
-      {members === null ? (
+      {!canManageMembers ? (
+        <Elem name="empty">Only project Managers and organization Admins can manage project members.</Elem>
+      ) : members === null ? (
         <div style={{ display: "flex", justifyContent: "center", marginTop: 32 }}>
           <Spinner size={32} />
         </div>

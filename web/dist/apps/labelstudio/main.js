@@ -62797,7 +62797,7 @@ postcss.plugin = function plugin(name, initializer) {
           ': postcss.plugin was deprecated. Migration guide:\n' +
           'https://evilmartians.com/chronicles/postcss-8-plugin-migration'
       )
-      if (({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"6187634505265282932","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"labelstudio","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\6187634505265282932","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).LANG && ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"6187634505265282932","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"labelstudio","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\6187634505265282932","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).LANG.startsWith('cn')) {
+      if (({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_SKIP_NX_CACHE":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"14070007495976103572","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"labelstudio","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\14070007495976103572","NX_VERBOSE_LOGGING":"true","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).LANG && ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_SKIP_NX_CACHE":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"14070007495976103572","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"labelstudio","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\14070007495976103572","NX_VERBOSE_LOGGING":"true","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).LANG.startsWith('cn')) {
         /* c8 ignore next 7 */
         // eslint-disable-next-line no-console
         console.warn(
@@ -122240,33 +122240,43 @@ const MembersSettings = () => {
   const {
     project
   } = (0,_providers_ProjectProvider__WEBPACK_IMPORTED_MODULE_7__.useProject)();
+  const callApi = api.callApi;
+  const canManageMembers = project.can_manage_members === true;
   const [members, setMembers] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)(null);
   const [orgUsers, setOrgUsers] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)([]);
   const [selectedUserId, setSelectedUserId] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)("");
   const [busy, setBusy] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)(false);
   const fetchMembers = (0,react__WEBPACK_IMPORTED_MODULE_0__.useCallback)(async () => {
     if (!project.id) return;
-    const response = await api.callApi("projectMembers", {
+    if (!canManageMembers) {
+      setMembers([]);
+      setOrgUsers([]);
+      return;
+    }
+    const response = await callApi("projectMembers", {
       params: {
         pk: project.id
-      }
+      },
+      errorFilter: result => result.status === 403
     });
-    if (Array.isArray(response)) setMembers(response);
-  }, [api, project.id]);
+    setMembers(Array.isArray(response) ? response : []);
+  }, [callApi, canManageMembers, project.id]);
   const fetchOrgUsers = (0,react__WEBPACK_IMPORTED_MODULE_0__.useCallback)(async () => {
-    const currentUser = await api.callApi("me");
+    if (!canManageMembers) return;
+    const currentUser = await callApi("me");
     const organizationId = currentUser == null ? void 0 : currentUser.active_organization;
     if (!organizationId) return;
-    const response = await api.callApi("memberships", {
+    const response = await callApi("memberships", {
       params: {
         pk: organizationId,
         page_size: 1000
-      }
+      },
+      errorFilter: result => result.status === 403
     });
     if (response != null && response.results) setOrgUsers(response.results.map(({
       user
-    }) => user));
-  }, [api]);
+    }) => user));else setOrgUsers([]);
+  }, [callApi, canManageMembers]);
   (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(() => {
     fetchMembers();
     fetchOrgUsers();
@@ -122277,7 +122287,7 @@ const MembersSettings = () => {
   const addMember = (0,react__WEBPACK_IMPORTED_MODULE_0__.useCallback)(async () => {
     if (!selectedUserId) return;
     setBusy(true);
-    await api.callApi("addProjectMember", {
+    await callApi("addProjectMember", {
       params: {
         pk: project.id
       },
@@ -122289,9 +122299,9 @@ const MembersSettings = () => {
     setSelectedUserId("");
     setBusy(false);
     await fetchMembers();
-  }, [api, project.id, selectedUserId, fetchMembers]);
+  }, [callApi, project.id, selectedUserId, fetchMembers]);
   const changeRole = (0,react__WEBPACK_IMPORTED_MODULE_0__.useCallback)(async (memberId, role) => {
-    await api.callApi("updateProjectMember", {
+    await callApi("updateProjectMember", {
       params: {
         pk: project.id,
         memberID: memberId
@@ -122301,7 +122311,7 @@ const MembersSettings = () => {
       }
     });
     await fetchMembers();
-  }, [api, project.id, fetchMembers]);
+  }, [callApi, project.id, fetchMembers]);
   const removeMember = (0,react__WEBPACK_IMPORTED_MODULE_0__.useCallback)(member => {
     (0,_components_Modal_Modal__WEBPACK_IMPORTED_MODULE_3__.confirm)({
       title: "Remove member",
@@ -122309,7 +122319,7 @@ const MembersSettings = () => {
       okText: "Remove",
       buttonLook: "destructive",
       onOk: async () => {
-        await api.callApi("deleteProjectMember", {
+        await callApi("deleteProjectMember", {
           params: {
             pk: project.id,
             memberID: member.id
@@ -122318,22 +122328,22 @@ const MembersSettings = () => {
         await fetchMembers();
       }
     });
-  }, [api, project.id, fetchMembers]);
+  }, [callApi, project.id, fetchMembers]);
   return /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)(_utils_bem__WEBPACK_IMPORTED_MODULE_8__.Block, {
     name: "members-settings",
     children: [/*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)("h1", {
       children: "Members"
     }, void 0, false, {
       fileName: _jsxFileName,
-      lineNumber: 97,
+      lineNumber: 113,
       columnNumber: 7
     }, undefined), /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)(_components_Form__WEBPACK_IMPORTED_MODULE_2__.Label, {
       description: "Assign Manager, Reviewer, or Annotator access for this project."
     }, void 0, false, {
       fileName: _jsxFileName,
-      lineNumber: 98,
+      lineNumber: 114,
       columnNumber: 7
-    }, undefined), /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)(_utils_bem__WEBPACK_IMPORTED_MODULE_8__.Elem, {
+    }, undefined), canManageMembers ? /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)(_utils_bem__WEBPACK_IMPORTED_MODULE_8__.Elem, {
       name: "controls",
       children: /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)(_components_Space_Space__WEBPACK_IMPORTED_MODULE_4__.Space, {
         children: /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)("div", {
@@ -122354,8 +122364,8 @@ const MembersSettings = () => {
             }
           }, void 0, false, {
             fileName: _jsxFileName,
-            lineNumber: 103,
-            columnNumber: 11
+            lineNumber: 120,
+            columnNumber: 15
           }, undefined), /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)(_components__WEBPACK_IMPORTED_MODULE_1__.Button, {
             primary: true,
             disabled: !selectedUserId || busy,
@@ -122364,24 +122374,31 @@ const MembersSettings = () => {
             children: "Add Member"
           }, void 0, false, {
             fileName: _jsxFileName,
-            lineNumber: 110,
-            columnNumber: 11
+            lineNumber: 127,
+            columnNumber: 15
           }, undefined)]
         }, void 0, true, {
           fileName: _jsxFileName,
-          lineNumber: 102,
-          columnNumber: 11
+          lineNumber: 119,
+          columnNumber: 13
         }, undefined)
       }, void 0, false, {
         fileName: _jsxFileName,
-        lineNumber: 101,
-        columnNumber: 9
+        lineNumber: 118,
+        columnNumber: 11
       }, undefined)
     }, void 0, false, {
       fileName: _jsxFileName,
-      lineNumber: 100,
-      columnNumber: 7
-    }, undefined), members === null ? /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)("div", {
+      lineNumber: 117,
+      columnNumber: 9
+    }, undefined) : null, !canManageMembers ? /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)(_utils_bem__WEBPACK_IMPORTED_MODULE_8__.Elem, {
+      name: "empty",
+      children: "Only project Managers and organization Admins can manage project members."
+    }, void 0, false, {
+      fileName: _jsxFileName,
+      lineNumber: 136,
+      columnNumber: 9
+    }, undefined) : members === null ? /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)("div", {
       style: {
         display: "flex",
         justifyContent: "center",
@@ -122391,12 +122408,12 @@ const MembersSettings = () => {
         size: 32
       }, void 0, false, {
         fileName: _jsxFileName,
-        lineNumber: 119,
+        lineNumber: 139,
         columnNumber: 11
       }, undefined)
     }, void 0, false, {
       fileName: _jsxFileName,
-      lineNumber: 118,
+      lineNumber: 138,
       columnNumber: 9
     }, undefined) : /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)(_utils_bem__WEBPACK_IMPORTED_MODULE_8__.Elem, {
       name: "list",
@@ -122407,7 +122424,7 @@ const MembersSettings = () => {
           children: member.user.email
         }, void 0, false, {
           fileName: _jsxFileName,
-          lineNumber: 125,
+          lineNumber: 145,
           columnNumber: 15
         }, undefined), /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)(_utils_bem__WEBPACK_IMPORTED_MODULE_8__.Elem, {
           name: "role",
@@ -122417,12 +122434,12 @@ const MembersSettings = () => {
             onChange: e => changeRole(member.id, e.target.value)
           }, void 0, false, {
             fileName: _jsxFileName,
-            lineNumber: 127,
+            lineNumber: 147,
             columnNumber: 17
           }, undefined)
         }, void 0, false, {
           fileName: _jsxFileName,
-          lineNumber: 126,
+          lineNumber: 146,
           columnNumber: 15
         }, undefined), /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)(_components__WEBPACK_IMPORTED_MODULE_1__.Button, {
           look: "danger",
@@ -122430,29 +122447,29 @@ const MembersSettings = () => {
           children: "Remove"
         }, void 0, false, {
           fileName: _jsxFileName,
-          lineNumber: 133,
+          lineNumber: 153,
           columnNumber: 15
         }, undefined)]
       }, member.id, true, {
         fileName: _jsxFileName,
-        lineNumber: 124,
+        lineNumber: 144,
         columnNumber: 13
       }, undefined)), members.length === 0 && /*#__PURE__*/(0,react_jsx_dev_runtime__WEBPACK_IMPORTED_MODULE_10__.jsxDEV)(_utils_bem__WEBPACK_IMPORTED_MODULE_8__.Elem, {
         name: "empty",
         children: "No members assigned yet. All organization members have Annotator access by default."
       }, void 0, false, {
         fileName: _jsxFileName,
-        lineNumber: 138,
+        lineNumber: 158,
         columnNumber: 36
       }, undefined)]
     }, void 0, true, {
       fileName: _jsxFileName,
-      lineNumber: 122,
+      lineNumber: 142,
       columnNumber: 9
     }, undefined)]
   }, void 0, true, {
     fileName: _jsxFileName,
-    lineNumber: 96,
+    lineNumber: 112,
     columnNumber: 5
   }, undefined);
 };

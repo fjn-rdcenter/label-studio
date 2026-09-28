@@ -86,6 +86,7 @@ class ProjectSerializer(FlexFieldsModelSerializer):
         default=None, read_only=True, help_text='Flag to detect is project ready for labeling'
     )
     finished_task_number = serializers.IntegerField(default=None, read_only=True, help_text='Finished tasks')
+    can_manage_members = serializers.SerializerMethodField()
 
     queue_total = serializers.SerializerMethodField()
     queue_done = serializers.SerializerMethodField()
@@ -108,6 +109,16 @@ class ProjectSerializer(FlexFieldsModelSerializer):
     def get_start_training_on_annotation_update(self, instance):
         # FIXME: remake this logic with start_training_on_annotation_update
         return True if instance.min_annotations_to_start_training else False
+
+    def get_can_manage_members(self, project):
+        request = self.context.get('request')
+        if not request or not getattr(request.user, 'is_authenticated', False) or not project.organization_id:
+            return False
+
+        return bool(
+            project.organization.has_role(request.user, 'AD')
+            or project.has_role(request.user, ProjectMember.Role.MANAGER)
+        )
 
     def to_internal_value(self, data):
         # FIXME: remake this logic with start_training_on_annotation_update
@@ -175,6 +186,7 @@ class ProjectSerializer(FlexFieldsModelSerializer):
             'finished_task_number',
             'queue_total',
             'queue_done',
+            'can_manage_members',
         ]
 
     def validate_label_config(self, value):
