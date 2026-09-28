@@ -4,6 +4,9 @@ import json
 
 import pytest
 from rest_framework import status
+from rest_framework.test import APIClient
+from projects.models import Project, ProjectMember
+from users.models import User
 
 from ..utils import project_id  # noqa
 
@@ -188,6 +191,52 @@ def test_views_api_filters(business_client, project_id):
 
     assert response.status_code == 200, response.content
     assert response.json()['data'] == updated_payload['data']
+
+
+@pytest.mark.parametrize(
+    'role',
+    [ProjectMember.Role.ANNOTATOR, ProjectMember.Role.REVIEWER],
+)
+def test_labelers_can_save_and_delete_filters_but_cannot_delete_view(business_client, configured_project, role):
+    project = configured_project
+    labeler = User.objects.create_user(email=f'filter-{role.lower()}@example.com', password='test-password')
+    business_client.organization.add_user(labeler)
+    project.add_collaborator(labeler, role=role)
+
+    client = APIClient()
+    client.force_authenticate(user=labeler)
+    payload = {
+        'project': project.id,
+        'data': {
+            'filters': {
+                'conjunction': 'and',
+                'items': [
+                    {
+                        'filter': 'filter:tasks:id',
+                        'operator': 'greater',
+                        'type': 'Number',
+                        'value': 1,
+                    }
+                ],
+            }
+        },
+    }
+
+    response = client.post('/api/dm/views/?interaction=filter', data=payload, format='json')
+    assert response.status_code == 201, response.content
+    view_id = response.json()['id']
+
+    payload['data']['filters']['items'] = []
+    response = client.patch(
+        f'/api/dm/views/{view_id}/?interaction=filter',
+        data=payload,
+        format='json',
+    )
+    assert response.status_code == 200, response.content
+    assert response.json()['data']['filters']['items'] == []
+
+    response = client.delete(f'/api/dm/views/{view_id}/')
+    assert response.status_code == 403, response.content
 
 
 def test_views_ordered_by_id(business_client, project_id):

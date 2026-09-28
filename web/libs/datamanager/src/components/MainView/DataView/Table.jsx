@@ -254,7 +254,7 @@ export const DataView = injector(
         {
           resolver: (col) => col.type === "Number",
           style(col) {
-            return /id/.test(col.id) ? { width: 50 } : { width: 110 };
+            return col.id === "quality_level" ? { width: 190 } : /id/.test(col.id) ? { width: 50 } : { width: 110 };
           },
         },
         {

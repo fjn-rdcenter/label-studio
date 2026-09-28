@@ -1,5 +1,5 @@
 import React, { Component } from "react";
-import { Badge, Button, Card, List, Popconfirm, Tooltip } from "antd";
+import { Badge, Button, Card, List, Popconfirm, Tag, Tooltip } from "antd";
 import { observer } from "mobx-react";
 import {
   DeleteOutlined,
@@ -44,6 +44,12 @@ export const DraftPanel = observer(({ item }) => {
 });
 
 const Annotation = observer(({ item, store }) => {
+  const qualityLevel = Math.min(Math.max(item.quality_level ?? 1, 1), 3);
+  const qualityLabels = {
+    1: { color: "default", label: "Level 1: Annotator" },
+    2: { color: "gold", label: "Level 2: Reviewer" },
+    3: { color: "green", label: "Level 3: Manager approved" },
+  };
   const removeHoney = () => (
     <Tooltip placement="topLeft" title="Unset this result as a ground truth">
       <Button
@@ -182,6 +188,7 @@ const Annotation = observer(({ item, store }) => {
           <div className={styles.title}>
             {badge}
             {annotationID}
+            <Tag color={qualityLabels[qualityLevel].color}>{qualityLabels[qualityLevel].label}</Tag>
           </div>
           {item.pk ? "Created" : "Started"}
           <i>{item.createdAgo ? ` ${item.createdAgo} ago` : ` ${Utils.UDate.prettyDate(item.createdDate)}`}</i>

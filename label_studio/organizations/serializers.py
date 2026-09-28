@@ -22,9 +22,12 @@ class OrganizationSerializer(DynamicFieldsMixin, serializers.ModelSerializer):
 
 
 class OrganizationMemberSerializer(DynamicFieldsMixin, serializers.ModelSerializer):
+    role = serializers.ChoiceField(choices=OrganizationMember.Role.choices, required=False)
+
     class Meta:
         model = OrganizationMember
-        fields = ['id', 'organization', 'user']
+        fields = ['id', 'organization', 'user', 'role', 'deleted_at']
+        read_only_fields = ['id', 'organization', 'user', 'deleted_at']
 
 
 class UserSerializerWithProjects(UserSerializer):
@@ -58,10 +61,18 @@ class OrganizationMemberUserSerializer(DynamicFieldsMixin, serializers.ModelSeri
     """Adds all user properties"""
 
     user = UserSerializerWithProjects()
+    role = serializers.ChoiceField(choices=OrganizationMember.Role.choices, required=False)
 
     class Meta:
         model = OrganizationMember
-        fields = ['id', 'organization', 'user']
+        fields = ['id', 'organization', 'user', 'role', 'deleted_at']
+        read_only_fields = ['id', 'organization', 'user', 'deleted_at']
+
+    def validate_role(self, value):
+        if self.instance and self.instance.user_id == self.instance.organization.created_by_id:
+            if value != OrganizationMember.Role.ADMIN:
+                raise serializers.ValidationError('The organization owner must remain an Admin')
+        return value
 
 
 class OrganizationInviteSerializer(serializers.Serializer):

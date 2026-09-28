@@ -391,7 +391,7 @@ export const Tab = types
 
       self.filters.splice(index, 1);
       destroy(filter);
-      self.save();
+      self.save({ interaction: "filter" });
     },
 
     afterAttach() {

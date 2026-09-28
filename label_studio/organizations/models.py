@@ -15,13 +15,22 @@ OrganizationMemberMixin = load_func(settings.ORGANIZATION_MEMBER_MIXIN)
 
 
 class OrganizationMember(OrganizationMemberMixin, models.Model):
-    """ """
+    class Role(models.TextChoices):
+        ADMIN = 'AD', _('Admin')
+        MANAGER = 'MA', _('Manager')
+        MEMBER = 'ME', _('Member')
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='om_through', help_text='User ID'
     )
     organization = models.ForeignKey(
         'organizations.Organization', on_delete=models.CASCADE, help_text='Organization ID'
+    )
+    role = models.CharField(
+        max_length=2,
+        choices=Role.choices,
+        default=Role.MEMBER,
+        help_text='Organization role of the member',
     )
 
     created_at = models.DateTimeField(_('created at'), auto_now_add=True)
@@ -54,8 +63,19 @@ class OrganizationMember(OrganizationMemberMixin, models.Model):
     def is_owner(self):
         return self.user.id == self.organization.created_by.id
 
+    @property
+    def is_admin(self):
+        return self.role == self.Role.ADMIN or self.is_owner
+
     class Meta:
         ordering = ['pk']
+        constraints = [
+            models.UniqueConstraint(
+                condition=models.Q(deleted_at__isnull=True),
+                fields=('user',),
+                name='unique_active_user_organization',
+            )
+        ]
 
     def soft_delete(self):
         with transaction.atomic():
@@ -133,14 +153,40 @@ class Organization(OrganizationMixin, models.Model):
     def has_permission(self, user):
         return OrganizationMember.objects.filter(user=user, organization=self, deleted_at__isnull=True).exists()
 
+    def get_role(self, user):
+        if user is None or not getattr(user, 'is_authenticated', False):
+            return None
+        if self.created_by_id == getattr(user, 'id', None):
+            return OrganizationMember.Role.ADMIN
+        membership = self.members.filter(user=user, deleted_at__isnull=True).first()
+        return membership.role if membership else None
+
+    def has_role(self, user, min_role=OrganizationMember.Role.MEMBER):
+        role = self.get_role(user)
+        hierarchy = {
+            OrganizationMember.Role.MEMBER: 1,
+            OrganizationMember.Role.MANAGER: 2,
+            OrganizationMember.Role.ADMIN: 3,
+        }
+        return hierarchy.get(role, 0) >= hierarchy.get(min_role, 0)
+
     def add_user(self, user):
-        if self.users.filter(pk=user.pk).exists():
+        membership = OrganizationMember.objects.filter(user=user, organization=self).first()
+        if membership and membership.deleted_at is None:
             logger.debug('User already exists in organization.')
-            return
+            return membership
+
+        if OrganizationMember.objects.filter(user=user, deleted_at__isnull=True).exclude(organization=self).exists():
+            raise ValueError('A user can belong to only one active organization.')
 
         with transaction.atomic():
-            om = OrganizationMember(user=user, organization=self)
+            om = membership or OrganizationMember(user=user, organization=self)
+            om.deleted_at = None
             om.save()
+
+            if user.active_organization_id is None:
+                user.active_organization = self
+                user.save(update_fields=['active_organization'])
 
             return om
 

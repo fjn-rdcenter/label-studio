@@ -21,6 +21,8 @@ from django.db.models import (
     Exists,
     F,
     FloatField,
+    IntegerField,
+    Max,
     OuterRef,
     Q,
     Subquery,
@@ -671,6 +673,16 @@ def annotate_avg_lead_time(queryset):
     return queryset.annotate(avg_lead_time=Avg('annotations__lead_time'))
 
 
+def annotate_quality_level(queryset):
+    level = Case(
+        When(annotations__quality_level__isnull=False, then=F('annotations__quality_level')),
+        When(predictions__isnull=False, then=Value(1)),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
+    return queryset.annotate(quality_level=Max(level))
+
+
 def annotate_draft_exists(queryset):
     from tasks.models import AnnotationDraft
 
@@ -696,6 +708,7 @@ settings.DATA_MANAGER_ANNOTATIONS_MAP = {
     'annotations_ids': annotate_annotations_ids,
     'file_upload': file_upload,
     'draft_exists': annotate_draft_exists,
+    'quality_level': annotate_quality_level,
     'storage_filename': annotate_storage_filename,
 }
 

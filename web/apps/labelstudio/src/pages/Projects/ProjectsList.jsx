@@ -4,17 +4,18 @@ import React, { useMemo } from "react";
 import { NavLink } from "react-router-dom";
 import { LsBulb, LsCheck, LsEllipsis, LsMinus } from "../../assets/icons";
 import { Button, Dropdown, Menu, Pagination, Userpic } from "../../components";
+import { ApiContext } from "../../providers/ApiProvider";
 import { Block, Elem } from "../../utils/bem";
 import { absoluteURL } from "../../utils/helpers";
 
 const DEFAULT_CARD_COLORS = ["#FFFFFF", "#FDFDFC"];
 
-export const ProjectsList = ({ projects, currentPage, totalItems, loadNextPage, pageSize }) => {
+export const ProjectsList = ({ projects, currentPage, totalItems, loadNextPage, pageSize, onProjectMoved }) => {
   return (
     <>
       <Elem name="list">
         {projects.map((project) => (
-          <ProjectCard key={project.id} project={project} />
+          <ProjectCard key={project.id} project={project} onProjectMoved={onProjectMoved} />
         ))}
       </Elem>
       <Elem name="pages">
@@ -48,7 +49,22 @@ export const EmptyProjectsList = ({ openModal }) => {
   );
 };
 
-const ProjectCard = ({ project }) => {
+const ProjectCard = ({ project, onProjectMoved }) => {
+  const api = React.useContext(ApiContext);
+  const moveProject = async (direction) => {
+    await api.callApi("reorderProject", {
+      params: { pk: project.id },
+      body: { direction },
+    });
+    await onProjectMoved?.();
+  };
+  const moveToTop = async () => {
+    await api.callApi("updateProject", {
+      params: { pk: project.id },
+      body: { pinned_at: new Date().toISOString() },
+    });
+    await onProjectMoved?.();
+  };
   const color = useMemo(() => {
     return DEFAULT_CARD_COLORS.includes(project.color) ? null : project.color;
   }, [project]);
@@ -81,6 +97,9 @@ const ProjectCard = ({ project }) => {
                   <Menu contextual>
                     <Menu.Item href={`/projects/${project.id}/settings`}>Settings</Menu.Item>
                     <Menu.Item href={`/projects/${project.id}/data?labeling=1`}>Label</Menu.Item>
+                    <Menu.Item onClick={moveToTop}>Move to top</Menu.Item>
+                    <Menu.Item onClick={() => moveProject("up")}>Move up</Menu.Item>
+                    <Menu.Item onClick={() => moveProject("down")}>Move down</Menu.Item>
                   </Menu>
                 }
               >

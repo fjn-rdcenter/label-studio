@@ -3,13 +3,61 @@
 import json
 
 import pytest
+from data_manager.prepare_params import Column
 from data_import.models import FileUpload
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.utils.timezone import now
 from projects.models import Project
+from projects.models import ProjectMember
+from tasks.models import Annotation
 
 from ..utils import make_annotation, make_annotator, make_prediction, make_task, project_id  # noqa
+
+
+def test_quality_level_is_available_as_a_task_filter():
+    assert 'filter:tasks:quality_level' in Column.enums_for_filters()
+
+
+@pytest.mark.django_db
+def test_filter_tasks_by_quality_level(annotator_client, configured_project):
+    project = configured_project
+    membership = ProjectMember.objects.get(user=annotator_client.user, project=project)
+    membership.role = ProjectMember.Role.MANAGER
+    membership.save(update_fields=['role'])
+    reviewed_task = make_task({'data': {'text': 'reviewed'}}, project)
+    confirmed_task = make_task({'data': {'text': 'confirmed'}}, project)
+    make_annotation({'result': [], 'quality_level': Annotation.QualityLevel.REVIEWER}, reviewed_task.id)
+    make_annotation({'result': [], 'quality_level': Annotation.QualityLevel.MANAGER}, confirmed_task.id)
+    payload = {
+        'project': project.id,
+        'data': {
+            'filters': {
+                'conjunction': 'and',
+                'items': [
+                    {
+                        'filter': 'filter:tasks:quality_level',
+                        'operator': 'equal',
+                        'type': 'Number',
+                        'value': Annotation.QualityLevel.REVIEWER,
+                    }
+                ],
+            }
+        },
+    }
+    response = annotator_client.post(
+        '/api/dm/views/',
+        data=json.dumps(payload),
+        content_type='application/json',
+    )
+
+    assert response.status_code == 201, response.content
+    tasks_response = annotator_client.get(f"/api/tasks?view={response.json()['id']}")
+    assert tasks_response.status_code == 200
+    filtered_tasks = tasks_response.json()['tasks']
+    assert [task['id'] for task in filtered_tasks] == [reviewed_task.id]
+    assert filtered_tasks[0]['can_manage_annotation_quality'] is True
+    assert filtered_tasks[0]['quality_level_change_ids'] == [reviewed_task.annotations.first().id]
 
 
 @pytest.mark.parametrize(

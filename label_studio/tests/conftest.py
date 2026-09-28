@@ -20,8 +20,8 @@ from botocore.exceptions import ClientError
 from django.conf import settings
 from freezegun import freeze_time
 from moto import mock_s3
-from organizations.models import Organization
-from projects.models import Project
+from organizations.models import Organization, OrganizationMember
+from projects.models import Project, ProjectMember
 from tasks.models import Task
 from users.models import User
 
@@ -631,6 +631,18 @@ def configured_project(business_client, annotator_client):
     # get user to be owner
     users = User.objects.filter(email='business@pytest.net')  # TODO(nik): how to get proper email for business here?
     project = make_project(_project_for_text_choices_onto_A_B_classes, users[0])
+    old_membership = OrganizationMember.objects.filter(
+        user=annotator_client.user,
+        deleted_at__isnull=True,
+    ).first()
+    if old_membership:
+        old_membership.soft_delete()
+    business_client.organization.add_user(annotator_client.user)
+    ProjectMember.objects.create(
+        user=annotator_client.user,
+        project=project,
+        role=ProjectMember.Role.ANNOTATOR,
+    )
 
     assert project.ml_backends.first().url == 'http://localhost:8999'
 

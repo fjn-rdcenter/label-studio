@@ -9,7 +9,7 @@ from django.db import transaction
 from drf_yasg import openapi
 from projects.models import Project
 from rest_framework import serializers
-from tasks.models import Task
+from tasks.models import Annotation, Task
 from tasks.serializers import (
     AnnotationDraftSerializer,
     AnnotationSerializer,
@@ -354,6 +354,10 @@ class DataManagerTaskSerializer(TaskSerializer):
     annotations_ids = serializers.SerializerMethodField(required=False)
     predictions_model_versions = serializers.SerializerMethodField(required=False)
     avg_lead_time = serializers.FloatField(required=False)
+    quality_level = serializers.IntegerField(required=False)
+    quality_level_change_ids = serializers.SerializerMethodField(required=False)
+    can_annotate = serializers.SerializerMethodField()
+    can_manage_annotation_quality = serializers.SerializerMethodField()
     draft_exists = serializers.BooleanField(required=False)
     updated_by = UpdatedByDMFieldSerializer(required=False, read_only=True)
 
@@ -404,6 +408,25 @@ class DataManagerTaskSerializer(TaskSerializer):
 
     def get_predictions(self, task):
         return PredictionSerializer(task.predictions, many=True, default=[], read_only=True).data
+
+    def get_quality_level_change_ids(self, task):
+        request = self.context.get('request')
+        if not request or not task.project.has_role(request.user, 'MA'):
+            return []
+
+        active_annotations = [annotation for annotation in task.annotations.all() if not annotation.was_cancelled]
+        highest_level = max((annotation.quality_level for annotation in active_annotations), default=0)
+        if highest_level not in {Annotation.QualityLevel.REVIEWER, Annotation.QualityLevel.MANAGER}:
+            return []
+        return [annotation.pk for annotation in active_annotations if annotation.quality_level == highest_level]
+
+    def get_can_annotate(self, task):
+        request = self.context.get('request')
+        return bool(request and task.project.has_role(request.user, 'AN'))
+
+    def get_can_manage_annotation_quality(self, task):
+        request = self.context.get('request')
+        return bool(request and task.project.has_role(request.user, 'MA'))
 
     @staticmethod
     def get_file_upload(task):

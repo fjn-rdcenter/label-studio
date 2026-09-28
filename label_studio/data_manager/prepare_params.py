@@ -81,6 +81,7 @@ class Column(Enum):
         'Important note: the filter `type` should be List, but the filter `value` is integer',
     )
     TOTAL_PREDICTIONS = 'total_predictions', 'Number', 'Total number of predictions for the task'
+    QUALITY_LEVEL = 'quality_level', 'Number', 'Label status level: 0 not labeled, 1 annotator, 2 reviewed, 3 confirmed'
     CANCELLED_ANNOTATIONS = (
         'cancelled_annotations',
         'Number',

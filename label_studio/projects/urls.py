@@ -18,6 +18,7 @@ _urlpatterns = [
 _api_urlpatterns = [
     # CRUD
     path('', api.ProjectListAPI.as_view(), name='project-list'),
+    path('<int:pk>/reorder/', api.ProjectReorderAPI.as_view(), name='project-reorder'),
     path('<int:pk>/', api.ProjectAPI.as_view(), name='project-detail'),
     # Get next task
     path('<int:pk>/next/', api.ProjectNextTaskAPI.as_view(), name='project-next'),
@@ -45,6 +46,9 @@ _api_urlpatterns = [
     path('<int:pk>/sample-task/', api.ProjectSampleTask.as_view(), name='project-sample-task'),
     # List available model versions
     path('<int:pk>/model-versions/', api.ProjectModelVersions.as_view(), name='project-model-versions'),
+    # Project members
+    path('<int:pk>/members/', api.ProjectMemberListAPI.as_view(), name='project-members-list'),
+    path('<int:pk>/members/<int:memberID>/', api.ProjectMemberAPI.as_view(), name='project-member-detail'),
 ]
 
 _api_urlpatterns_templates = [

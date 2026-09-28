@@ -61,6 +61,9 @@ function configureApplication(params) {
     // callbacks and event handlers
     onSubmitAnnotation: params.onSubmitAnnotation ? osCB : External.onSubmitAnnotation,
     onUpdateAnnotation: params.onUpdateAnnotation ? ouCB : External.onUpdateAnnotation,
+    onChangeAnnotationQualityLevel: params.onChangeAnnotationQualityLevel
+      ? params.onChangeAnnotationQualityLevel
+      : External.onChangeAnnotationQualityLevel,
     onDeleteAnnotation: params.onDeleteAnnotation ? odCB : External.onDeleteAnnotation,
     onSkipTask: params.onSkipTask ? params.onSkipTask : External.onSkipTask,
     onUnskipTask: params.onUnskipTask ? params.onUnskipTask : External.onUnskipTask,

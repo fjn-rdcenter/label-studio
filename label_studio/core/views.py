@@ -7,10 +7,9 @@ import mimetypes
 import os
 import posixpath
 import sys
-import urllib.request
 from pathlib import Path
 from wsgiref.util import FileWrapper
-
+ 
 import pandas as pd
 from core import utils
 from core.feature_flags import all_flags, get_feature_file_path
@@ -32,6 +31,7 @@ from django.template import loader
 from django.utils._os import safe_join
 from drf_yasg.utils import swagger_auto_schema
 from io_storages.localfiles.models import LocalFilesImportStorage
+from organizations.models import OrganizationMember
 from ranged_fileresponse import RangedFileResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -197,29 +197,20 @@ def localfiles_data(request):
             _full_path=Value(os.path.dirname(full_path), output_field=CharField())
         ).filter(_full_path__startswith=F('path'))
         if localfiles_storage.exists():
-            user_has_permissions = any(storage.project.has_permission(user) for storage in localfiles_storage)
+            # Org Admins deliberately get no project role (see ProjectMixin.get_role), so fall back
+            # to org-level admin check here (mirrors ml.permissions.MLBackendProjectPermission).
+            user_has_permissions = any(
+                storage.project.has_permission(user)
+                or storage.project.organization.has_role(user, OrganizationMember.Role.ADMIN)
+                for storage in localfiles_storage
+            )
 
         if user_has_permissions and os.path.exists(full_path):
             content_type, encoding = mimetypes.guess_type(str(full_path))
             content_type = content_type or 'application/octet-stream'
             return RangedFileResponse(request, open(full_path, mode='rb'), content_type)
-        elif not os.path.exists(full_path):
-            # File not found locally — proxy to upstream server if configured
-            proxy_upstream = getattr(settings, 'PROXY_LOCAL_FILES_URL', None)
-            proxy_token = getattr(settings, 'PROXY_LOCAL_FILES_TOKEN', None)
-            if proxy_upstream and proxy_token:
-                upstream_url = f"{proxy_upstream.rstrip('/')}/data/local-files?d={path}"
-                logger.info(f"Local file not found, proxying to upstream: {upstream_url}")
-                try:
-                    req = urllib.request.Request(upstream_url)
-                    req.add_header('Authorization', f'Token {proxy_token}')
-                    with urllib.request.urlopen(req, timeout=30) as resp:
-                        content_type = resp.headers.get('Content-Type', 'application/octet-stream')
-                        data = resp.read()
-                    return HttpResponse(data, content_type=content_type)
-                except Exception as e:
-                    logger.warning(f"Failed to proxy local file from upstream: {e}")
-        return HttpResponseNotFound()
+        else:
+            return HttpResponseNotFound()
 
     return HttpResponseForbidden()
 

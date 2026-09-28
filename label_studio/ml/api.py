@@ -11,10 +11,12 @@ from django.utils.decorators import method_decorator
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_yasg.utils import no_body, swagger_auto_schema
 from ml.models import MLBackend
-from ml.serializers import MLBackendSerializer, MLInteractiveAnnotatingRequest
-from projects.models import Project, Task
+from ml.permissions import MLBackendInteractivePermission, MLBackendProjectPermission
+from ml.serializers import MLBackendLabelerSerializer, MLBackendSerializer, MLInteractiveAnnotatingRequest
+from projects.models import Project, ProjectMember, Task
 from rest_framework import generics, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -86,6 +88,7 @@ _ml_backend_schema = openapi.Schema(
 )
 class MLBackendListAPI(generics.ListCreateAPIView):
     parser_classes = (JSONParser, FormParser, MultiPartParser)
+    permission_classes = (IsAuthenticated, MLBackendProjectPermission)
     permission_required = ViewClassPermission(
         GET=all_permissions.projects_view,
         POST=all_permissions.projects_change,
@@ -93,6 +96,14 @@ class MLBackendListAPI(generics.ListCreateAPIView):
     serializer_class = MLBackendSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['is_interactive']
+
+    def get_serializer_class(self):
+        if self.request.method == 'GET':
+            project_id = self.request.query_params.get('project')
+            project = Project.objects.filter(pk=project_id).first()
+            if project and project.has_role(self.request.user, ProjectMember.Role.ANNOTATOR):
+                return MLBackendLabelerSerializer
+        return super().get_serializer_class()
 
     def get_queryset(self):
         project_pk = self.request.query_params.get('project')
@@ -178,6 +189,7 @@ class MLBackendListAPI(generics.ListCreateAPIView):
 @method_decorator(name='put', decorator=swagger_auto_schema(auto_schema=None))
 class MLBackendDetailAPI(generics.RetrieveUpdateDestroyAPIView):
     parser_classes = (JSONParser, FormParser, MultiPartParser)
+    permission_classes = (IsAuthenticated, MLBackendProjectPermission)
     serializer_class = MLBackendSerializer
     permission_required = all_permissions.projects_change
     queryset = MLBackend.objects.all()
@@ -237,6 +249,7 @@ class MLBackendDetailAPI(generics.RetrieveUpdateDestroyAPIView):
 )
 class MLBackendTrainAPI(APIView):
 
+    permission_classes = (IsAuthenticated, MLBackendProjectPermission)
     permission_required = all_permissions.projects_change
 
     def post(self, request, *args, **kwargs):
@@ -281,6 +294,7 @@ class MLBackendTrainAPI(APIView):
 )
 class MLBackendPredictTestAPI(APIView):
     serializer_class = MLBackendSerializer
+    permission_classes = (IsAuthenticated, MLBackendProjectPermission)
     permission_required = all_permissions.projects_change
 
     def post(self, request, *args, **kwargs):
@@ -337,6 +351,7 @@ class MLBackendInteractiveAnnotating(APIView):
     """
 
     permission_required = all_permissions.tasks_view
+    permission_classes = (IsAuthenticated, MLBackendInteractivePermission)
 
     def _error_response(self, message, log_function=logger.info):
         log_function(message)
@@ -388,6 +403,7 @@ class MLBackendInteractiveAnnotating(APIView):
 )
 class MLBackendVersionsAPI(generics.RetrieveAPIView):
 
+    permission_classes = (IsAuthenticated, MLBackendProjectPermission)
     permission_required = all_permissions.projects_change
 
     def get(self, request, *args, **kwargs):

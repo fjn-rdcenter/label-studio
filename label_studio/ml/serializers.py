@@ -111,6 +111,13 @@ class MLBackendSerializer(serializers.ModelSerializer):
         ]
 
 
+class MLBackendLabelerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MLBackend
+        fields = ['id', 'is_interactive']
+        read_only_fields = fields
+
+
 class MLInteractiveAnnotatingRequest(serializers.Serializer):
     """
     Serializer for ML interactive annotating request.

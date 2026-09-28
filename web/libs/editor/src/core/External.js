@@ -10,6 +10,8 @@ function onSubmitAnnotation() {}
  * Callback on update annotation
  */
 function onUpdateAnnotation() {}
+
+function onChangeAnnotationQualityLevel() {}
 /**
  * Callback on delete annotation
  */
@@ -88,6 +90,7 @@ export default {
   onSubmitDraft,
   onTaskLoad,
   onUpdateAnnotation,
+  onChangeAnnotationQualityLevel,
   onSelectAnnotation,
   onAcceptAnnotation,
   onRejectAnnotation,

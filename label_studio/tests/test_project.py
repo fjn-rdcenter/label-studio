@@ -2,13 +2,22 @@ import json
 
 import pytest
 from django.db.models.query import QuerySet
+from organizations.models import OrganizationMember
+from rest_framework.test import APIClient
 from tests.utils import make_project
 from users.models import User
 
 
 @pytest.mark.django_db
 def test_update_tasks_counters_and_task_states(business_client):
-    project = make_project({}, business_client.user, use_ml_backend=False)
+    manager = User.objects.create(email='project-task-manager@example.com')
+    business_client.organization.add_user(manager)
+    membership = OrganizationMember.objects.get(user=manager, organization=business_client.organization)
+    membership.role = OrganizationMember.Role.MANAGER
+    membership.save(update_fields=['role'])
+    project = make_project({}, manager, use_ml_backend=False, org=business_client.organization)
+    client = APIClient()
+    client.force_authenticate(user=manager)
 
     # CHECK EMPTY LIST
     ids = []
@@ -17,9 +26,7 @@ def test_update_tasks_counters_and_task_states(business_client):
 
     tasks = [{'data': {'location': 'London', 'text': 'text A'}}, {'data': {'location': 'London', 'text': 'text B'}}]
     # upload tasks with annotations
-    r = business_client.post(
-        f'/api/projects/{project.id}/tasks/bulk', data=json.dumps(tasks), content_type='application/json'
-    )
+    r = client.post(f'/api/projects/{project.id}/tasks/bulk', data=tasks, format='json')
     assert r.status_code == 201
 
     # CHECK LIST with IDS

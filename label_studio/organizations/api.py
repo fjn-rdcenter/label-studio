@@ -11,6 +11,7 @@ from django.utils.decorators import method_decorator
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from organizations.models import Organization, OrganizationMember
+from organizations.permissions import OrganizationMemberManagePermission
 from organizations.serializers import (
     OrganizationIdSerializer,
     OrganizationInviteSerializer,
@@ -160,13 +161,14 @@ class OrganizationMemberListAPI(generics.ListAPIView):
 )
 class OrganizationMemberDetailAPI(GetParentObjectMixin, generics.RetrieveDestroyAPIView):
     permission_required = ViewClassPermission(
+        PATCH=all_permissions.organizations_change,
         DELETE=all_permissions.organizations_change,
     )
     parent_queryset = Organization.objects.all()
     parser_classes = (JSONParser, FormParser, MultiPartParser)
-    permission_classes = (IsAuthenticated, HasObjectPermission)
+    permission_classes = (IsAuthenticated, OrganizationMemberManagePermission)
     serializer_class = OrganizationMemberUserSerializer  # Assuming this is the right serializer
-    http_method_names = ['delete']
+    http_method_names = ['patch', 'delete']
 
     def delete(self, request, pk=None, user_pk=None):
         org = self.get_parent_object()
@@ -183,6 +185,14 @@ class OrganizationMemberDetailAPI(GetParentObjectMixin, generics.RetrieveDestroy
 
         member.soft_delete()
         return Response(status=204)  # 204 No Content is a common HTTP status for successful delete requests
+
+    def patch(self, request, pk=None, user_pk=None):
+        org = self.get_parent_object()
+        member = get_object_or_404(OrganizationMember, user_id=user_pk, organization=org, deleted_at__isnull=True)
+        serializer = self.get_serializer(member, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 @method_decorator(

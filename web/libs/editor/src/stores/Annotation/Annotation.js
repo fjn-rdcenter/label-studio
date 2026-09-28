@@ -135,6 +135,7 @@ export const Annotation = types
     localUpdate: types.optional(types.boolean, false),
 
     ground_truth: types.optional(types.boolean, false),
+    quality_level: types.optional(types.integer, 1),
     skipped: false,
 
     // This field stores all data that affects undo/redo history
@@ -368,6 +369,10 @@ export const Annotation = types
 
     setEdit(val) {
       self.editable = val;
+    },
+
+    setQualityLevel(value) {
+      self.quality_level = value;
     },
 
     setReadonly(val) {
