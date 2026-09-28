@@ -52,6 +52,13 @@ _view_request_body = openapi.Schema(
 
 
 class DataManagerProjectRolePermission(BasePermission):
+    @staticmethod
+    def is_filter_interaction(request, view):
+        return (
+            getattr(view, 'action', None) in {'create', 'update', 'partial_update'}
+            and request.query_params.get('interaction') == 'filter'
+        )
+
     def get_project(self, request, view):
         project_id = request.query_params.get('project') or request.data.get('project')
         if project_id:
@@ -88,12 +95,16 @@ class DataManagerProjectRolePermission(BasePermission):
         project = self.get_project(request, view)
         if request.method in SAFE_METHODS:
             return self.is_member_or_admin(project, request.user)
+        if self.is_filter_interaction(request, view):
+            return self.is_member_or_admin(project, request.user)
 
         return bool(project and project.has_role(request.user, ProjectMember.Role.MANAGER))
 
     def has_object_permission(self, request, view, obj):
         project = getattr(obj, 'project', obj)
         if request.method in SAFE_METHODS:
+            return self.is_member_or_admin(project, request.user)
+        if self.is_filter_interaction(request, view):
             return self.is_member_or_admin(project, request.user)
 
         return bool(project and project.has_role(request.user, ProjectMember.Role.MANAGER))

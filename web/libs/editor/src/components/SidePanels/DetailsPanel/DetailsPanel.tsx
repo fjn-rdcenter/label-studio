@@ -163,10 +163,13 @@ const HistoryTab: FC<any> = inject("store")(
 );
 
 const InfoTab: FC<any> = inject("store")(
-  observer(({ selection }) => {
+  observer(({ selection, store }) => {
+    const currentEntity = store.annotationStore.selected;
+
     return (
       <>
         <Block name="info">
+          <QualityLevel store={store} currentEntity={currentEntity} />
           <Elem name="section-tab">
             <Elem name="section-head">Selection Details</Elem>
             <RegionsPanel regions={selection} />

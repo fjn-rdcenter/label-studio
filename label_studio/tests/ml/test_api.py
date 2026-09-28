@@ -1,14 +1,39 @@
 import json
 
 import pytest
+from projects.models import ProjectMember
 from projects.models import Task
 from rest_framework import status
+from rest_framework.test import APIClient
 
 from label_studio.tests.utils import make_project, register_ml_backend_mock
 
 ORIG_MODEL_NAME = 'basic_ml_backend'
 PROJECT_CONFIG = """<View><Image name="image" value="$image_url"/><Choices name="label"
           toName="image"><Choice value="pos"/><Choice value="neg"/></Choices></View>"""
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('role', [ProjectMember.Role.ANNOTATOR, ProjectMember.Role.REVIEWER])
+def test_labelers_can_open_project_without_reading_ml_backend_configuration(annotator_client, configured_project, role):
+    membership = ProjectMember.objects.get(user=annotator_client.user, project=configured_project)
+    membership.role = role
+    membership.save(update_fields=['role'])
+    backend = configured_project.ml_backends.first()
+    client = APIClient()
+    client.force_authenticate(user=annotator_client.user)
+
+    list_response = client.get(f'/api/ml/?project={configured_project.id}')
+    assert list_response.status_code == 200
+    assert list_response.data == [{'id': backend.id, 'is_interactive': backend.is_interactive}]
+    assert client.get(f'/api/ml/{backend.id}').status_code == 403
+    assert client.post(
+        '/api/ml/',
+        {'project': configured_project.id, 'title': 'unauthorized', 'url': backend.url},
+        format='json',
+    ).status_code == 403
+    assert client.post(f'/api/ml/{backend.id}/train').status_code == 403
+    assert client.post(f'/api/ml/{backend.id}/predict/test?random=true').status_code == 403
 
 
 @pytest.fixture

@@ -32886,7 +32886,7 @@ function warnError(msg) {
  */
 function isTypeCheckingEnabled() {
     return (devMode() ||
-        (typeof process !== "undefined" && ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"9227104258483130754","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\9227104258483130754","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}) && ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"9227104258483130754","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\9227104258483130754","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).ENABLE_TYPE_CHECK === "true"));
+        (typeof process !== "undefined" && ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"14667151018398074299","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\14667151018398074299","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}) && ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"14667151018398074299","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\14667151018398074299","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).ENABLE_TYPE_CHECK === "true"));
 }
 /**
  * @internal
@@ -36498,7 +36498,7 @@ function createDecoratorForEnhancer(enhancer) {
     });
     var res = 
     // Extra process checks, as this happens during module initialization
-    typeof process !== "undefined" && ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"9227104258483130754","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\9227104258483130754","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}) && "development" !== "production"
+    typeof process !== "undefined" && ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"14667151018398074299","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\14667151018398074299","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}) && "development" !== "production"
         ? function observableDecorator() {
             // This wrapper function is just to detect illegal decorator invocations, deprecate in a next version
             // and simply return the created prop decorator
@@ -40715,7 +40715,7 @@ catch (e) {
     function testCodeMinification() { }
     if (testCodeMinification.name !== "testCodeMinification" &&
         "development" !== "production" &&
-        typeof process !== 'undefined' && ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"9227104258483130754","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\9227104258483130754","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).IGNORE_MOBX_MINIFY_WARNING !== "true") {
+        typeof process !== 'undefined' && ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"14667151018398074299","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\14667151018398074299","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).IGNORE_MOBX_MINIFY_WARNING !== "true") {
         // trick so it doesn't get replaced
         var varName = ["process", "env", "NODE_ENV"].join(".");
         console.warn("[mobx] you are running a minified build, but '" + varName + "' was not set to 'production' in your bundler. This results in an unnecessarily large and slow bundle");
@@ -128871,8 +128871,8 @@ var _jsxFileName = "D:\\FUJINET\\AstecRD\\label-studio\\web\\libs\\datamanager\\
 
 
 
-const API_GATEWAY = ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"9227104258483130754","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\9227104258483130754","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).API_GATEWAY || ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"9227104258483130754","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\9227104258483130754","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).NX_API_GATEWAY;
-const LS_ACCESS_TOKEN = ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"9227104258483130754","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\9227104258483130754","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).LS_ACCESS_TOKEN || ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"9227104258483130754","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\9227104258483130754","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).NX_LS_ACCESS_TOKEN;
+const API_GATEWAY = ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"14667151018398074299","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\14667151018398074299","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).API_GATEWAY || ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"14667151018398074299","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\14667151018398074299","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).NX_API_GATEWAY;
+const LS_ACCESS_TOKEN = ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"14667151018398074299","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\14667151018398074299","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).LS_ACCESS_TOKEN || ({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"14667151018398074299","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\14667151018398074299","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).NX_LS_ACCESS_TOKEN;
 
 /**
  * @param {import("../src/sdk/dm-sdk").DataManager} DataManager
@@ -134093,6 +134093,9 @@ const create = columns => {
     annotations: mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.optional(mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.array(_types__WEBPACK_IMPORTED_MODULE_12__.CustomJSON), []),
     predictions: mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.optional(mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.array(_types__WEBPACK_IMPORTED_MODULE_12__.CustomJSON), []),
     drafts: mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.frozen(),
+    quality_level_change_ids: mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.optional(mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.array(mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.number), []),
+    can_annotate: mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.optional(mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.boolean, false),
+    can_manage_annotation_quality: mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.optional(mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.boolean, false),
     source: mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.maybeNull(mobx_state_tree__WEBPACK_IMPORTED_MODULE_14__.types.string),
     was_cancelled: false,
     assigned_task: false,
@@ -135274,7 +135277,9 @@ const Tab = mobx_state_tree__WEBPACK_IMPORTED_MODULE_19__.types.model("View", {
     const index = self.filters.findIndex(f => f === filter);
     self.filters.splice(index, 1);
     (0,mobx_state_tree__WEBPACK_IMPORTED_MODULE_19__.destroy)(filter);
-    self.save();
+    self.save({
+      interaction: "filter"
+    });
   },
   afterAttach() {
     var _self$hiddenColumns;
@@ -145800,7 +145805,7 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
-if ( true && !({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"9227104258483130754","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\9227104258483130754","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).BUILD_NO_SERVER) {
+if ( true && !({"NX_CLI_SET":"true","NX_LOAD_DOT_ENV_FILES":"true","NX_STREAM_OUTPUT":"true","NX_TASK_HASH":"14667151018398074299","NX_TASK_TARGET_CONFIGURATION":"development","NX_TASK_TARGET_PROJECT":"datamanager","NX_TASK_TARGET_TARGET":"build","NX_TERMINAL_OUTPUT_PATH":"D:\\FUJINET\\AstecRD\\label-studio\\web\\.nx\\cache\\terminalOutputs\\14667151018398074299","NX_WORKSPACE_ROOT":"D:\\FUJINET\\AstecRD\\label-studio\\web"}).BUILD_NO_SERVER) {
   Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, "./src/dev.jsx")).then(({
     initDevApp
   }) => initDevApp(_sdk__WEBPACK_IMPORTED_MODULE_3__.DataManager));
