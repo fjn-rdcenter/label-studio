@@ -36,6 +36,7 @@ class MLBackendProjectPermission(BasePermission):
         return bool(
             cls._can_read_configuration(project, user)
             or (project and project.has_role(user, ProjectMember.Role.ANNOTATOR))
+            or (project and project.has_role(user, ProjectMember.Role.REVIEWER))
         )
 
     @classmethod
@@ -67,4 +68,5 @@ class MLBackendInteractivePermission(BasePermission):
         return bool(getattr(request.user, 'is_authenticated', False))
 
     def has_object_permission(self, request, view, backend):
-        return backend.project.has_role(request.user, ProjectMember.Role.ANNOTATOR)
+        return backend.project.has_role(request.user, ProjectMember.Role.ANNOTATOR) or backend.project.has_role(request.user, ProjectMember.Role.REVIEWER)
+    

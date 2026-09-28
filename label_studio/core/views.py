@@ -31,6 +31,7 @@ from django.template import loader
 from django.utils._os import safe_join
 from drf_yasg.utils import swagger_auto_schema
 from io_storages.localfiles.models import LocalFilesImportStorage
+from organizations.models import OrganizationMember
 from ranged_fileresponse import RangedFileResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -196,7 +197,13 @@ def localfiles_data(request):
             _full_path=Value(os.path.dirname(full_path), output_field=CharField())
         ).filter(_full_path__startswith=F('path'))
         if localfiles_storage.exists():
-            user_has_permissions = any(storage.project.has_permission(user) for storage in localfiles_storage)
+            # Org Admins deliberately get no project role (see ProjectMixin.get_role), so fall back
+            # to org-level admin check here (mirrors ml.permissions.MLBackendProjectPermission).
+            user_has_permissions = any(
+                storage.project.has_permission(user)
+                or storage.project.organization.has_role(user, OrganizationMember.Role.ADMIN)
+                for storage in localfiles_storage
+            )
 
         if user_has_permissions and os.path.exists(full_path):
             content_type, encoding = mimetypes.guess_type(str(full_path))
