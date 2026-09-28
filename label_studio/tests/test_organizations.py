@@ -1,12 +1,14 @@
 """This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license.
 """
 from types import SimpleNamespace
+import json
 
 import pytest
 from organizations.models import OrganizationMember
 from organizations.serializers import OrganizationMemberUserSerializer
 from projects.models import Project, ProjectMember
 from projects.permissions import OrganizationProjectCreatePermission, ProjectRolePermission
+from rest_framework.test import APIClient
 from tests.utils import make_project
 from tasks.models import Annotation, Task
 from tasks.permissions import AnnotationWorkflowPermission
@@ -52,6 +54,30 @@ def test_organization_manager_can_create_projects_and_admin_sees_all(business_cl
     assert Project.objects.for_user(business_client.user).filter(pk=project.pk).exists()
     assert not Project.objects.for_user(member).filter(pk=project.pk).exists()
     assert project.has_role(manager, ProjectMember.Role.MANAGER)
+
+
+@pytest.mark.django_db
+def test_new_project_creator_gets_explicit_manager_membership(business_client):
+    manager = User.objects.create(email='new-project-manager@example.com')
+    business_client.organization.add_user(manager)
+    manager_membership = OrganizationMember.objects.get(user=manager, organization=business_client.organization)
+    manager_membership.role = OrganizationMember.Role.MANAGER
+    manager_membership.save(update_fields=['role'])
+    manager.active_organization = business_client.organization
+    manager.save(update_fields=['active_organization'])
+    client = APIClient()
+    client.force_authenticate(user=manager)
+
+    response = client.post(
+        '/api/projects/',
+        data={'title': 'Explicit project manager', 'label_config': '<View></View>'},
+        format='json',
+    )
+
+    assert response.status_code == 201, response.content
+    project = Project.objects.get(pk=response.json()['id'])
+    project_membership = ProjectMember.objects.get(project=project, user=manager)
+    assert project_membership.role == ProjectMember.Role.MANAGER
 
 
 @pytest.mark.django_db

@@ -276,7 +276,8 @@ class ProjectListAPI(generics.ListCreateAPIView):
 
     def perform_create(self, ser):
         try:
-            ser.save(organization=self.request.user.active_organization)
+            project = ser.save(organization=self.request.user.active_organization)
+            project.add_collaborator(self.request.user, role=ProjectMember.Role.MANAGER)
         except IntegrityError as e:
             if str(e) == 'UNIQUE constraint failed: project.title, project.created_by_id':
                 raise ProjectExistException(
