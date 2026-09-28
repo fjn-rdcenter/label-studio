@@ -90,9 +90,7 @@ class ProjectManager(models.Manager):
         if user.active_organization.has_role(user, OrganizationMember.Role.ADMIN):
             return queryset
 
-        return queryset.filter(
-            models.Q(created_by=user) | models.Q(members__user=user, members__enabled=True)
-        ).distinct()
+        return queryset.filter(members__user=user, members__enabled=True).distinct()
 
     def with_counts(self, fields=None):
         return self.with_counts_annotate(self, fields=fields)

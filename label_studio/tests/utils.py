@@ -19,7 +19,7 @@ from django.conf import settings
 from django.test import Client
 from ml.models import MLBackend
 from organizations.models import Organization
-from projects.models import Project
+from projects.models import Project, ProjectMember
 from tasks.serializers import TaskWithAnnotationsSerializer
 from users.models import User
 
@@ -231,6 +231,7 @@ def make_project(config, user, use_ml_backend=True, team_id=None, org=None):
     if org is None:
         org = Organization.objects.filter(created_by=user).first()
     project = Project.objects.create(created_by=user, organization=org, **config)
+    project.add_collaborator(user, role=ProjectMember.Role.MANAGER)
     if use_ml_backend:
         MLBackend.objects.create(project=project, url='http://localhost:8999')
 

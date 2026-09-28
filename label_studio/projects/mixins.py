@@ -82,8 +82,6 @@ class ProjectMixin:
             return None
         if self.organization.has_role(user, 'AD'):
             return None
-        if getattr(self, 'created_by_id', None) == getattr(user, 'id', None):
-            return 'MA'
 
         membership = self.members.filter(user=user, enabled=True).first() if hasattr(self, 'members') else None
         if membership is not None:

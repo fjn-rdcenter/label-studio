@@ -104,6 +104,22 @@ def test_project_delete_permissions_are_admin_or_project_manager(business_client
 
 
 @pytest.mark.django_db
+def test_removing_project_creator_membership_revokes_project_access(business_client):
+    organization = business_client.organization
+    creator = User.objects.create(email='removed-project-creator@example.com')
+    organization.add_user(creator)
+    project = make_project({'title': 'Creator access revoked'}, creator, use_ml_backend=False, org=organization)
+
+    assert project.has_role(creator, ProjectMember.Role.MANAGER)
+    assert Project.objects.for_user(creator).filter(pk=project.pk).exists()
+
+    ProjectMember.objects.get(project=project, user=creator).delete()
+
+    assert not project.has_role(creator, ProjectMember.Role.MANAGER)
+    assert not Project.objects.for_user(creator).filter(pk=project.pk).exists()
+
+
+@pytest.mark.django_db
 def test_organization_owner_cannot_be_demoted(business_client):
     owner_membership = OrganizationMember.objects.get(
         user=business_client.user,
