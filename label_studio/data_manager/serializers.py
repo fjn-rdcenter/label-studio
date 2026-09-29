@@ -356,6 +356,8 @@ class DataManagerTaskSerializer(TaskSerializer):
     avg_lead_time = serializers.FloatField(required=False)
     quality_level = serializers.IntegerField(required=False)
     quality_level_change_ids = serializers.SerializerMethodField(required=False)
+    has_annotator_annotations = serializers.SerializerMethodField(required=False)
+    can_review_annotation_quality = serializers.SerializerMethodField(required=False)
     can_annotate = serializers.SerializerMethodField()
     can_manage_annotation_quality = serializers.SerializerMethodField()
     draft_exists = serializers.BooleanField(required=False)
@@ -411,14 +413,33 @@ class DataManagerTaskSerializer(TaskSerializer):
 
     def get_quality_level_change_ids(self, task):
         request = self.context.get('request')
-        if not request or not task.project.has_role(request.user, 'MA'):
+        if not request:
+            return []
+
+        is_manager = task.project.has_role(request.user, 'MA')
+        is_reviewer = task.project.has_role(request.user, 'RE')
+        if not is_manager and not is_reviewer:
             return []
 
         active_annotations = [annotation for annotation in task.annotations.all() if not annotation.was_cancelled]
         highest_level = max((annotation.quality_level for annotation in active_annotations), default=0)
-        if highest_level not in {Annotation.QualityLevel.REVIEWER, Annotation.QualityLevel.MANAGER}:
+        allowed_levels = (
+            {Annotation.QualityLevel.ANNOTATOR}
+            if is_reviewer and not is_manager
+            else {Annotation.QualityLevel.REVIEWER, Annotation.QualityLevel.MANAGER}
+        )
+        if highest_level not in allowed_levels:
             return []
         return [annotation.pk for annotation in active_annotations if annotation.quality_level == highest_level]
+
+    def get_has_annotator_annotations(self, task):
+        return task.annotations.filter(
+            was_cancelled=False, quality_level=Annotation.QualityLevel.ANNOTATOR
+        ).exists()
+
+    def get_can_review_annotation_quality(self, task):
+        request = self.context.get('request')
+        return bool(request and task.project.has_role(request.user, 'RE'))
 
     def get_can_annotate(self, task):
         request = self.context.get('request')

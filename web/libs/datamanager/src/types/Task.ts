@@ -60,6 +60,8 @@ export interface APITask {
   can_manage_annotation_quality?: boolean;
   quality_level?: number;
   quality_level_change_ids?: number[];
+  has_annotator_annotations?: boolean;
+  can_review_annotation_quality?: boolean;
 
   project?: number | null;
 
@@ -75,6 +77,8 @@ export interface LSFTaskData {
   can_manage_annotation_quality?: boolean;
   quality_level?: number;
   quality_level_change_ids?: number[];
+  has_annotator_annotations?: boolean;
+  can_review_annotation_quality?: boolean;
   createdAt?: DateTime;
   annotations: LSFAnnotationData[];
   predictions: LSFAnnotationData[];

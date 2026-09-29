@@ -184,6 +184,7 @@ export class LSFWrapper {
       onStorageInitialized: this.onStorageInitialized,
       onSubmitAnnotation: this.onSubmitAnnotation,
       onUpdateAnnotation: this.onUpdateAnnotation,
+      onAcceptAnnotation: this.onAcceptAnnotation,
       onChangeAnnotationQualityLevel: this.onChangeAnnotationQualityLevel,
       onDeleteAnnotation: this.onDeleteAnnotation,
       onSkipTask: this.onSkipTask,
@@ -597,6 +598,9 @@ export class LSFWrapper {
     const exitStream = this.shouldExitStream();
 
     Object.assign(serializedAnnotation, extraData);
+    if (this.task.can_review_annotation_quality && annotation.quality_level === 1) {
+      serializedAnnotation.quality_level = 2;
+    }
 
     await this.saveUserLabels();
 
@@ -630,6 +634,22 @@ export class LSFWrapper {
       await this.loadTask();
     } else {
       await this.loadTask(this.task.id, annotation.pk, true);
+    }
+  };
+
+  onAcceptAnnotation = async (_ls, { entity }) => {
+    const response = await this.datamanager.apiCall(
+      "updateAnnotation",
+      { taskID: this.task.id, annotationID: entity.pk },
+      { body: { ...this.prepareData(entity), quality_level: 2 } },
+    );
+    const status = response?.$meta?.status;
+
+    if (status === 200 || status === 201) {
+      this.datamanager.invoke("toast", { message: "Annotation reviewed successfully", type: "info" });
+      await this.loadTask(this.task.id, entity.pk, true);
+    } else if (status !== undefined) {
+      this.datamanager.invoke("toast", { message: "There was an error reviewing your Annotation", type: "error" });
     }
   };
 

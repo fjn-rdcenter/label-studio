@@ -122,6 +122,13 @@ class AnnotationSerializer(FlexFieldsModelSerializer):
 
     def update(self, instance, validated_data):
         if 'quality_level' in validated_data:
+            if validated_data['quality_level'] == instance.quality_level:
+                logger.warning(
+                    'Annotation update has no quality level change: annotation=%s user=%s quality_level=%s',
+                    instance.pk,
+                    self.context['request'].user.pk,
+                    instance.quality_level,
+                )
             validated_data['quality_updated_by'] = self.context['request'].user
         return super().update(instance, validated_data)
 

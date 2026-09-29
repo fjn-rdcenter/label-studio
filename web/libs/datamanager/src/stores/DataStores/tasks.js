@@ -28,6 +28,8 @@ export const create = (columns) => {
     predictions: types.optional(types.array(CustomJSON), []),
     drafts: types.frozen(),
     quality_level_change_ids: types.optional(types.array(types.number), []),
+    has_annotator_annotations: types.optional(types.boolean, false),
+    can_review_annotation_quality: types.optional(types.boolean, false),
     can_annotate: types.optional(types.boolean, false),
     can_manage_annotation_quality: types.optional(types.boolean, false),
     source: types.maybeNull(types.string),

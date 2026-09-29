@@ -19,6 +19,10 @@ export const QualityLevelCell = ({ value, original }) => {
     const annotationIDs = original?.quality_level_change_ids ?? [];
     if (!annotationIDs.length || changing || ![2, 3].includes(level)) return;
 
+    if (!original?.has_annotator_annotations && !window.confirm("There are currently no changes. Are you sure you want to change the status?")) {
+      return;
+    }
+
     const nextLevel = level === 2 ? 3 : 2;
     const taskID = original.task_id ?? original.id;
     const remainingIDs = [...annotationIDs];

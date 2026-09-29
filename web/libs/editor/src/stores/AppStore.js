@@ -574,6 +574,10 @@ export default types
       if (self.isSubmitting) return;
 
       const entity = self.annotationStore.selected;
+      const hasAnnotationChanges = entity.history.canUndo && entity.results.length > 0;
+      if (!hasAnnotationChanges && !window.confirm("There are currently no changes. Are you sure you want to change the status?")) {
+        return;
+      }
       const event = entity.exists ? "updateAnnotation" : "submitAnnotation";
 
       entity.beforeSend();
@@ -606,6 +610,10 @@ export default types
       if (self.isSubmitting) return;
 
       const entity = self.annotationStore.selected;
+      const hasAnnotationChanges = entity.history.canUndo && entity.results.length > 0;
+      if (!hasAnnotationChanges && !window.confirm("There are currently no changes. Are you sure you want to change the status?")) {
+        return;
+      }
 
       entity.beforeSend();
 
@@ -662,6 +670,11 @@ export default types
         }
 
         const isDirty = entity.history.canUndo;
+        const hasAnnotationChanges = isDirty && entity.results.length > 0;
+
+        if (!hasAnnotationChanges && !window.confirm("There are currently no changes. Are you sure you want to change the status?")) {
+          return;
+        }
 
         entity.dropDraft();
         await getEnv(self).events.invoke("acceptAnnotation", self, { isDirty, entity });
