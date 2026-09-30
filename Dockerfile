@@ -54,7 +54,12 @@ RUN set -eux \
      --option APT::AutoRemove::SuggestsImportant=false && rm -rf /var/lib/apt/lists/* /tmp/*
 
 RUN --mount=type=cache,target=$PIP_CACHE_DIR,uid=1001,gid=0 \
-    pip3 install --upgrade pip setuptools && pip3 install poetry uwsgi uwsgitop
+    pip3 install --upgrade pip setuptools && \
+    pip3 install \
+      "poetry==1.6.1" \
+      "packaging==23.2" \
+      "virtualenv==20.24.6" \
+      uwsgi uwsgitop
 
 
 # incapsulate nginx install & configure to a single layer
@@ -83,12 +88,9 @@ COPY --chown=1001:0 label_studio/__init__.py ./label_studio/__init__.py
 # importlib.metadata.metadata('label-studio') in label_studio/__init__.py.
 # PYTHONPATH=/label-studio ensures Python uses the full copied source directory.
 #
-# Root cause of retry complexity:
-#   poetry install DOWNGRADES packaging (26.x→23.2) and virtualenv (21.x→20.24.6).
-#   - packaging 23.2 is missing packaging.licenses → next poetry call fails immediately.
-#   - virtualenv 20.24.6 is missing activation/xonsh/activate.xsh → "Cannot install attr".
-# Fix: restore both packages to working versions BEFORE each attempt.
-# The || chain (not a for loop) ensures RUN fails if all 3 attempts fail.
+# Poetry shares the system environment with the application, so keep its
+# packaging dependencies aligned with poetry.lock to avoid replacing them
+# while Poetry is running. Test dependencies are not needed in this image.
 RUN --mount=type=cache,target=$POETRY_CACHE_DIR \
     poetry check --lock && poetry install
 
