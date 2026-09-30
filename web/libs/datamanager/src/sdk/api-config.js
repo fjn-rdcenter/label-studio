@@ -83,6 +83,7 @@ export const APIConfig = {
     updateAnnotation: {
       path: "/../annotations/:annotationID",
       method: "patch",
+      includeSharedParamsInBody: false,
     },
 
     /** Delete annotation */

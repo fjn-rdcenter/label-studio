@@ -52,7 +52,11 @@ export const APIConfig = {
     submitAnnotation: "POST:/../tasks/:taskID/annotations",
 
     /** Update annotation */
-    updateAnnotation: "PATCH:/../annotations/:annotationID",
+    updateAnnotation: {
+      path: "/../annotations/:annotationID",
+      method: "patch",
+      includeSharedParamsInBody: false,
+    },
 
     /** Delete annotation */
     deleteAnnotation: "DELETE:/../annotations/:annotationID",

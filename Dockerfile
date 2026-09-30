@@ -30,16 +30,13 @@ RUN --mount=type=cache,target=${YARN_CACHE_FOLDER},sharing=locked \
 
 FROM ubuntu:22.04
 
-ENV HOME=/label-studio
-
 ENV DEBIAN_FRONTEND=noninteractive \
     LS_DIR=/label-studio \
-    PIP_CACHE_DIR=/label-studio/.cache \
-    POETRY_CACHE_DIR=/label-studio/.poetry-cache \
+    PIP_CACHE_DIR=$HOME/.cache \
+    POETRY_CACHE_DIR=$HOME/.poetry-cache \
     POETRY_VIRTUALENVS_CREATE=false \
     POETRY_HTTP_TIMEOUT=300 \
     POETRY_INSTALLER_MAX_WORKERS=4 \
-    PYTHONPATH=/label-studio \
     DJANGO_SETTINGS_MODULE=core.settings.label_studio \
     LABEL_STUDIO_BASE_DATA_DIR=/label-studio/data \
     OPT_DIR=/opt/heartex/instance-data/etc \
@@ -57,9 +54,8 @@ RUN set -eux \
      --option APT::AutoRemove::SuggestsImportant=false && rm -rf /var/lib/apt/lists/* /tmp/*
 
 RUN --mount=type=cache,target=$PIP_CACHE_DIR,uid=1001,gid=0 \
-    pip3 install --upgrade pip setuptools && \
-    pip3 install poetry uwsgi uwsgitop && \
-    pip3 install "virtualenv>=20.26.0"
+    pip3 install --upgrade pip setuptools && pip3 install poetry uwsgi uwsgitop
+
 
 # incapsulate nginx install & configure to a single layer
 RUN set -eux; \
@@ -94,22 +90,7 @@ COPY --chown=1001:0 label_studio/__init__.py ./label_studio/__init__.py
 # Fix: restore both packages to working versions BEFORE each attempt.
 # The || chain (not a for loop) ensures RUN fails if all 3 attempts fail.
 RUN --mount=type=cache,target=$POETRY_CACHE_DIR \
-    poetry check --lock && \
-    ( \
-      pip3 install -q "packaging>=24.0" "virtualenv>=20.26.0" \
-        && poetry install \
-        && python3 -c "import sentry_sdk, environ, attr, django, numpy, pydantic" \
-    ) \
-    || ( echo "==> Retry 2/3 in 15s..." && sleep 15 \
-        && pip3 install -q "packaging>=24.0" "virtualenv>=20.26.0" \
-        && poetry install \
-        && python3 -c "import sentry_sdk, environ, attr, django, numpy, pydantic" \
-    ) \
-    || ( echo "==> Retry 3/3 in 15s..." && sleep 15 \
-        && pip3 install -q "packaging>=24.0" "virtualenv>=20.26.0" \
-        && poetry install \
-        && python3 -c "import sentry_sdk, environ, attr, django, numpy, pydantic" \
-    )
+    poetry check --lock && poetry install
 
 COPY --chown=1001:0 LICENSE LICENSE
 COPY --chown=1001:0 licenses licenses

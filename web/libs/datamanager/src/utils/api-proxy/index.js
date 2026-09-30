@@ -6,6 +6,7 @@
  * mock: (url: string, request: Request) => Dict
  * body: Dict,
  * headers: Headers,
+ * includeSharedParamsInBody: boolean,
  * }} EndpointConfig
  */
 
@@ -190,15 +191,16 @@ export class APIProxy {
         if (requestMethod !== "GET") {
           const contentType = requestHeaders.get("Content-Type");
           const { sharedParams } = this;
+          const bodySharedParams = methodSettings.includeSharedParamsInBody === false ? {} : sharedParams;
           const extendedBody = body ?? {};
 
           if (extendedBody instanceof FormData) {
-            Object.entries(sharedParams ?? {}).forEach(([key, value]) => {
+            Object.entries(bodySharedParams ?? {}).forEach(([key, value]) => {
               extendedBody.append(key, value);
             });
           } else {
             Object.assign(extendedBody, {
-              ...(sharedParams ?? {}),
+              ...(bodySharedParams ?? {}),
               ...(body ?? {}),
             });
           }

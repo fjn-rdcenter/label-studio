@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { observer } from "mobx-react";
 import { useSDK } from "../../providers/SDKProvider";
 import { Button } from "../Common/Button/Button";
 
@@ -9,10 +10,10 @@ const LEVELS = {
   3: { label: "Confirmed", color: "#15803d" },
 };
 
-export const QualityLevelCell = ({ value, original }) => {
+export const QualityLevelCell = observer(({ value, original }) => {
   const sdk = useSDK();
   const [changing, setChanging] = useState(false);
-  const level = Math.min(Math.max(Number(value) || 0, 0), 3);
+  const level = Math.min(Math.max(Number(original?.quality_level ?? value) || 0, 0), 3);
   const status = LEVELS[level];
   const changeLevel = async (event) => {
     event.stopPropagation();
@@ -41,14 +42,16 @@ export const QualityLevelCell = ({ value, original }) => {
         }
         remainingIDs.shift();
       }
-      original.quality_level = nextLevel;
-      original.quality_level_change_ids = annotationIDs;
+      original.update({
+        quality_level: nextLevel,
+        quality_level_change_ids: [...annotationIDs],
+      });
       sdk.invoke("toast", {
         message: nextLevel === 3 ? "Task confirmed" : "Task returned to Reviewed",
         type: "info",
       });
     } catch (_error) {
-      original.quality_level_change_ids = remainingIDs;
+      original.update({ quality_level_change_ids: [...remainingIDs] });
       sdk.invoke("toast", { message: "Unable to change task status", type: "error" });
     } finally {
       setChanging(false);
@@ -56,7 +59,7 @@ export const QualityLevelCell = ({ value, original }) => {
   };
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
       <span
         title={`Labeling status: ${status.label}`}
         style={{ color: status.color, fontSize: 12, fontWeight: 500, whiteSpace: "nowrap" }}
@@ -64,10 +67,16 @@ export const QualityLevelCell = ({ value, original }) => {
         {status.label}
       </span>
       {original?.quality_level_change_ids?.length && [2, 3].includes(level) ? (
-        <Button disabled={changing} onClick={changeLevel} size="small" type="button">
+        <Button
+          disabled={changing}
+          onClick={changeLevel}
+          size="small"
+          style={{ flexShrink: 0, whiteSpace: "nowrap" }}
+          type="button"
+        >
           {changing ? "Updating..." : level === 2 ? "Confirm" : "Return to Reviewed"}
         </Button>
       ) : null}
     </div>
   );
-};
+});

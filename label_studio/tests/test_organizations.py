@@ -212,6 +212,18 @@ def test_project_manager_can_change_review_confirmation_status(business_client):
     assert not permission.has_object_permission(content_edit_request, view, reviewed)
     assert not permission.has_object_permission(confirm_request, view, annotator_level)
 
+    client = APIClient()
+    client.force_authenticate(user=manager)
+    response = client.patch(
+        f'/api/annotations/{reviewed.pk}/',
+        {'quality_level': Annotation.QualityLevel.MANAGER},
+        format='json',
+    )
+    assert response.status_code == 200
+    reviewed.refresh_from_db()
+    assert reviewed.quality_level == Annotation.QualityLevel.MANAGER
+    assert reviewed.quality_updated_by == manager
+
     annotation_list_view = type('AnnotationsListAPI', (), {'kwargs': {'pk': task.pk}})()
     manager_request = SimpleNamespace(user=manager, method='POST')
     admin_request = SimpleNamespace(user=business_client.user, method='POST')
