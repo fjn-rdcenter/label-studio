@@ -64,7 +64,9 @@ const Model = types
     _value: types.optional(types.string, ""),
   })
   .volatile((self) => ({
-    toolNames: self.smart ? ["Polygon", "RingPolygon", "OpenCVPolygon"] : ["Polygon", "RingPolygon"],
+    toolNames: self.smart
+      ? ["Polygon", "RingPolygon", "OpenCVPolygon", "OpenCVRingPolygon"]
+      : ["Polygon", "RingPolygon"],
   }))
   .actions((self) => {
     return {

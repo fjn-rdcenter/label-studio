@@ -818,7 +818,9 @@ const HtxPolygonView = ({ item, setShapeRef }) => {
   const stage = item.parent?.stageRef;
   const selectedTool = item.parent?.getToolsManager().findSelectedTool();
   const isCreatingPolygon = item.annotation?.isDrawing
-    && ["PolygonTool", "RingPolygonTool", "OpenCVPolygonTool"].includes(selectedTool?.toolName);
+    && ["PolygonTool", "RingPolygonTool", "OpenCVPolygonTool", "OpenCVRingPolygonTool"].includes(
+      selectedTool?.toolName,
+    );
 
   return (
     <Group

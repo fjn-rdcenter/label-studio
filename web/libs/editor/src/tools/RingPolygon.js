@@ -31,7 +31,7 @@ const RingPolygonBase = types
         ring: true,
         outerclosed: false,
         closed: false,
-        dynamic: false,
+        dynamic: Boolean(self.isOpenCV),
       };
     },
   }))
@@ -131,6 +131,26 @@ const RingPolygonIdentity = types
     },
   }));
 
+const OpenCVRingPolygonIdentity = types
+  .model("OpenCVRingPolygonIdentity", {
+    group: "opencv",
+    shortcut: "shift+i",
+  })
+  .volatile(() => ({
+    isOpenCV: true,
+  }))
+  .views(() => ({
+    get viewTooltip() {
+      return "OpenCV Detect Ring Polygon";
+    },
+    get iconComponent() {
+      return IconRingPolygonTool;
+    },
+    get shouldRenderView() {
+      return true;
+    },
+  }));
+
 const RingPolygon = types.compose(
   "RingPolygonTool",
   ToolMixin,
@@ -140,4 +160,13 @@ const RingPolygon = types.compose(
   RingPolygonIdentity,
 );
 
-export { RingPolygon };
+const OpenCVRingPolygon = types.compose(
+  "OpenCVRingPolygonTool",
+  ToolMixin,
+  BaseTool,
+  DrawingTool,
+  RingPolygonBase,
+  OpenCVRingPolygonIdentity,
+);
+
+export { OpenCVRingPolygon, RingPolygon };

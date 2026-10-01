@@ -1,13 +1,13 @@
 # OpenCV Interactive Segmentation Backend
 
-A small, standalone Label Studio ML backend for interactive image segmentation. Rectangle and keypoint prompts produce `BrushLabels` RLE masks. Smart polygon prompts use OpenCV image gradients to trace a `PolygonLabels` contour between user-supplied anchor points.
+A small, standalone Label Studio ML backend for interactive image segmentation. Rectangle and keypoint prompts produce `BrushLabels` RLE masks. Smart polygon prompts use OpenCV image gradients to trace a `PolygonLabels` contour between user-supplied anchor points, with an optional inner contour for ring polygons.
 
 The repository includes two ready-to-use labeling configurations:
 
 - `label-config.xml` for tasks with a single `$image`.
 - `label-config-timelapse.xml` for the Fujinet `$timelapse[{{idx}}].image_urls` slice format. It preserves the existing `kp-{{idx}}`/`PN` and `pl-{{idx}}`/`PN Borderline` controls so existing annotations remain compatible.
 
-Both configurations are available in the project creation UI as **OpenCV Semi-Auto Segmentation** and **OpenCV Timelapse Segmentation**. They include manual rectangle, polygon, ellipse, keypoint, and brush tools. A separate **OpenCV Detect Polygon** toolbar button produces an editable edge-traced polygon without mixing it into Label Studio's Auto-Detect menu.
+Both configurations are available in the project creation UI as **OpenCV Semi-Auto Segmentation** and **OpenCV Timelapse Segmentation**. They include manual rectangle, polygon, ellipse, keypoint, and brush tools. Separate **OpenCV Detect Polygon** and **OpenCV Detect Ring Polygon** toolbar buttons produce editable edge-traced regions without mixing them into Label Studio's Auto-Detect menu.
 
 ## Protocol
 
@@ -138,11 +138,13 @@ In the instance on port `8080`, add `http://opencv-8080:9090` under **Settings >
 To use the tools:
 
 1. Select a polygon label.
-2. Select the separate **OpenCV Detect Polygon** tool or press `I`.
-3. Place coarse anchors around the object and close the polygon.
-4. Adjust the generated edge-traced polygon before submitting.
+2. Select **OpenCV Detect Polygon** (`I`) or **OpenCV Detect Ring Polygon** (`Shift+I`).
+3. For a normal polygon, place coarse anchors around the object and close the polygon.
+4. For a ring polygon, close the first coarse contour, draw and close a second contour on the other boundary, then adjust the two generated edge-traced contours before submitting. The service automatically treats the larger traced contour as the outside boundary, so the second contour may be inside or outside the first.
 
-The OpenCV service automatically treats the `Membrane` and `Ring` labels as ring output. `DEFAULT_RING_WIDTH` controls its default thickness in source-image pixels.
+Both tools call the same `/predict` endpoint on port `9090`. OpenCV traces both ring contours independently. The result uses the existing Label Studio polygon contract: outer `points`, one nested `holes` contour, and `ring`, `outerclosed`, and `closed` flags.
+
+If the traced contours touch or overlap slightly, the service clips the inner contour to a one-pixel inset of the outer contour and rebuilds it. The repair is accepted only when at least 70% of the original inner area remains; larger overlaps return no prediction instead of producing an invalid polygon hole.
 
 To run only the backend container:
 
