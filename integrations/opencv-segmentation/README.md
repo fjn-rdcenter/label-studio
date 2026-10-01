@@ -99,6 +99,42 @@ Then run the same Compose command. The optional env file is loaded only by the O
 
 Then open the project's **Settings > Machine Learning**, add `http://opencv-segmentation:9090`, and enable **Use for interactive preannotations**. The Compose service is intentionally available only inside the Docker network because the ML protocol has no authentication. Publish or bind port `9090` to loopback separately only when Label Studio itself runs outside Docker.
 
+### Two Label Studio instances
+
+The repository also includes `docker-compose.dual-opencv.yml` for two isolated Label Studio and OpenCV pairs:
+
+| Browser URL | Label Studio Docker URL | OpenCV Docker URL |
+| --- | --- | --- |
+| `http://localhost:8080` | `http://label-studio-8080:8080` | `http://opencv-8080:9090` |
+| `http://localhost:8081` | `http://label-studio-8081:8080` | `http://opencv-8081:9090` |
+
+Start the stack with:
+
+```bash
+docker compose -f docker-compose.dual-opencv.yml up -d --build
+```
+
+After obtaining an API token from each running Label Studio instance, create these two git-ignored files:
+
+```text
+.data/label_studio_8080/opencv.env
+.data/label_studio_8081/opencv.env
+```
+
+Each file contains the token belonging to its corresponding Label Studio instance:
+
+```dotenv
+LABEL_STUDIO_API_KEY=your-instance-token
+```
+
+Recreate the OpenCV services so they load the new tokens:
+
+```bash
+docker compose -f docker-compose.dual-opencv.yml up -d --force-recreate opencv-8080 opencv-8081
+```
+
+In the instance on port `8080`, add `http://opencv-8080:9090` under **Settings > Machine Learning**. In the instance on port `8081`, add `http://opencv-8081:9090`. The two OpenCV ports remain internal to the Compose network.
+
 To use the tools:
 
 1. Select a polygon label.
