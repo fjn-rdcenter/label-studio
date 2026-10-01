@@ -38,6 +38,7 @@ export const annotationToLSF = (annotation: APIAnnotation) => {
     pk: String(annotation.id),
     createdAgo: annotation.created_ago,
     createdBy: annotation.created_username,
+    updatedBy: annotation.updated_username || annotation.created_username,
     createdDate,
     leadTime: annotation.lead_time ?? 0,
     skipped: annotation.was_cancelled ?? false,

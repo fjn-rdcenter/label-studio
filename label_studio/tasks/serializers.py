@@ -88,6 +88,9 @@ class AnnotationSerializer(FlexFieldsModelSerializer):
 
     result = AnnotationResultField(required=False)
     created_username = serializers.SerializerMethodField(default='', read_only=True, help_text='Username string')
+    updated_username = serializers.SerializerMethodField(
+        default='', read_only=True, help_text='Username string of the latest annotation updater'
+    )
     created_ago = serializers.CharField(default='', read_only=True, help_text='Time delta from creation time')
     completed_by = serializers.PrimaryKeyRelatedField(required=False, queryset=User.objects.all())
     unique_id = serializers.CharField(required=False, write_only=True)
@@ -161,6 +164,18 @@ class AnnotationSerializer(FlexFieldsModelSerializer):
 
     def get_created_username(self, annotation):
         user = annotation.completed_by
+        if not user:
+            return ''
+
+        name = user.first_name
+        if len(user.last_name):
+            name = name + ' ' + user.last_name
+
+        name += f' {user.email}, {user.id}'
+        return name
+
+    def get_updated_username(self, annotation):
+        user = annotation.updated_by or annotation.completed_by
         if not user:
             return ''
 

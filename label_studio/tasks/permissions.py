@@ -44,14 +44,15 @@ class AnnotationWorkflowPermission(BasePermission):
                 and set(request.data.keys()) == {'quality_level'}
             )
 
+        if role == ProjectMember.Role.ANNOTATOR:
+            if request.method == 'DELETE':
+                return obj.completed_by_id == request.user.id and obj.quality_level == Annotation.QualityLevel.ANNOTATOR
+
+            # Annotators can always edit annotation content, even ones imported/created
+            # by a manager or another annotator, but can't change quality_level themselves.
+            return 'quality_level' not in request.data
+
         if obj.quality_level >= Annotation.QualityLevel.MANAGER:
             return False
 
-        if project.has_role(request.user, ProjectMember.Role.REVIEWER):
-            return True
-
-        return (
-            project.has_role(request.user, ProjectMember.Role.ANNOTATOR)
-            and obj.completed_by_id == request.user.id
-            and obj.quality_level == Annotation.QualityLevel.ANNOTATOR
-        )
+        return project.has_role(request.user, ProjectMember.Role.REVIEWER)

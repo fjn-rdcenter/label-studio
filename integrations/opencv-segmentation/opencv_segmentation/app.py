@@ -1,5 +1,6 @@
 import logging
 import os
+import json
 
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
@@ -33,7 +34,7 @@ def create_app(settings: Settings | None = None) -> Flask:
         if isinstance(config, str):
             parse_label_config(config)
         return jsonify(status="ok")
-
+    
     @application.post("/predict")
     def predict():
         payload = request.get_json(silent=False)
@@ -43,12 +44,23 @@ def create_app(settings: Settings | None = None) -> Flask:
         if not isinstance(tasks, list) or not tasks:
             raise InputError("tasks must be a non-empty list")
         if len(tasks) > settings.max_tasks:
-            raise InputError(f"At most {settings.max_tasks} tasks are allowed per request")
+            raise InputError(
+                f"At most {settings.max_tasks} tasks are allowed per request"
+            )
+
         spec = parse_label_config(payload.get("label_config"))
         params = payload.get("params") or {}
         context = params.get("context", {}) if isinstance(params, dict) else {}
-        predictions = [predict_task(task, spec, context, settings, MODEL_VERSION) for task in tasks]
-        return jsonify(results=predictions, model_version=MODEL_VERSION)
+
+        predictions = [
+            predict_task(task, spec, context, settings, MODEL_VERSION)
+            for task in tasks
+        ]
+
+        return jsonify(
+            results=predictions,
+            model_version=MODEL_VERSION
+        )
 
     @application.errorhandler(InputError)
     @application.errorhandler(BadRequest)
