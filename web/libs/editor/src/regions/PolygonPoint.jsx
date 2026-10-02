@@ -261,6 +261,7 @@ const PolygonPointView = observer(({ item, name }) => {
     onDragEnd: (e) => {
       setDraggable(true);
       item.annotation.history.unfreeze();
+      item.parent.notifyPointsChanged?.();
       e.cancelBubble = true;
     },
 

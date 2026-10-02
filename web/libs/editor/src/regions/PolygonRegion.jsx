@@ -214,7 +214,13 @@ const Model = types
         const [cursorX, cursorY] = self.parent.fixZoomedCoords([offsetX, offsetY]);
         const point = getAnchorPoint({ flattenedPoints, cursorX, cursorY });
 
-        self.insertPoint(insertIdx, point[0], point[1], contour);
+        const insertedPoint = self.insertPoint(insertIdx, point[0], point[1], contour);
+        if (insertedPoint) self.notifyPointsChanged();
+      },
+
+      notifyPointsChanged() {
+        if (self.isDrawing || !self.closed || self.isReadOnly() || self.fromSuggestion) return;
+        self.notifyDrawingFinished();
       },
 
       deletePoint(point) {
@@ -226,6 +232,7 @@ const Model = types
         if (willNotEliminateClosedShape || isLastPoint) return;
         if (isSelected) self.selectedPoint = null;
         destroy(point);
+        self.notifyPointsChanged();
       },
 
       addPoint(x, y) {
