@@ -1,7 +1,7 @@
 import { types } from "mobx-state-tree";
 import { observe } from "mobx";
 
-import { IconRingPolygonTool } from "../assets/icons";
+import { IconRingPolygonTool, IconRingPolygonToolSmart } from "../assets/icons";
 import { DrawingTool } from "../mixins/DrawingTool";
 import ToolMixin from "../mixins/Tool";
 import BaseTool, { DEFAULT_DIMENSIONS } from "./Base";
@@ -144,7 +144,7 @@ const OpenCVRingPolygonIdentity = types
       return "OpenCV Detect Ring Polygon";
     },
     get iconComponent() {
-      return IconRingPolygonTool;
+      return IconRingPolygonToolSmart;
     },
     get shouldRenderView() {
       return true;

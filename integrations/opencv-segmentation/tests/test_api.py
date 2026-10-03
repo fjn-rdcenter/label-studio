@@ -152,6 +152,32 @@ def test_polygon_prompt_returns_edge_traced_polygon(app):
     assert "ring" not in result["value"]
 
 
+def test_polygon_prompt_returns_to_matching_polygon_control(app):
+    payload = _payload()
+    payload["label_config"] = LABEL_CONFIG.replace(
+        "</View>",
+        '<PolygonLabels name="ring-outline" toName="scan"><Label value="Ring Cell"/></PolygonLabels></View>',
+    )
+    payload["params"]["context"]["result"] = [
+        {
+            "type": "polygonlabels",
+            "from_name": "ring-outline",
+            "to_name": "scan",
+            "value": {
+                "points": [[50, 25], [68, 50], [50, 75], [32, 50]],
+                "polygonlabels": ["Ring Cell"],
+            },
+        }
+    ]
+
+    response = app.test_client().post("/predict", json=payload)
+    result = response.get_json()["results"][0]["result"][0]
+
+    assert response.status_code == 200
+    assert result["from_name"] == "ring-outline"
+    assert result["value"]["polygonlabels"] == ["Ring Cell"]
+
+
 def test_polygon_ring_prompt_traces_both_contours(app, monkeypatch):
     monkeypatch.setattr("opencv_segmentation.service.trace_polygon", lambda _image, anchors: anchors)
     payload = _payload()

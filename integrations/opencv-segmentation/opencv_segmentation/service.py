@@ -29,6 +29,12 @@ class ImageFetchError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class PolygonSpec:
+    from_name: str
+    labels: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class LabelSpec:
     from_name: str
     to_name: str
@@ -37,6 +43,7 @@ class LabelSpec:
     labels: tuple[str, ...]
     polygon_from_name: str | None = None
     polygon_labels: tuple[str, ...] = ()
+    polygon_specs: tuple[PolygonSpec, ...] = ()
 
 
 def _tag_name(element: Any) -> str:
@@ -70,20 +77,27 @@ def parse_label_config(label_config: str | None) -> LabelSpec:
         for node in output.iter()
         if _tag_name(node).lower() == "label" and node.attrib.get("value")
     )
-    polygon = polygons[0] if polygons else None
-    polygon_labels = tuple(
-        node.attrib["value"]
-        for node in polygon.iter()
-        if _tag_name(node).lower() == "label" and node.attrib.get("value")
-    ) if polygon is not None else ()
+    polygon_specs = tuple(
+        PolygonSpec(
+            polygon.attrib.get("name", "polygon"),
+            tuple(
+                node.attrib["value"]
+                for node in polygon.iter()
+                if _tag_name(node).lower() == "label" and node.attrib.get("value")
+            ),
+        )
+        for polygon in polygons
+    )
+    polygon = polygon_specs[0] if polygon_specs else None
     return LabelSpec(
         from_name,
         to_name,
         image_expression or "$image",
         value_list is not None,
         labels or ("Object",),
-        polygon.attrib.get("name") if polygon is not None else None,
-        polygon_labels,
+        polygon.from_name if polygon is not None else None,
+        polygon.labels if polygon is not None else (),
+        polygon_specs,
     )
 
 
@@ -428,7 +442,7 @@ def _find_polygon_prompt(
     height: int,
     to_name: str | None = None,
     item_index: int | None = None,
-) -> tuple[list[tuple[int, int]], list[tuple[int, int]], list[str], dict[str, Any]]:
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]], list[str], dict[str, Any], str | None]:
     for result in reversed(_context_results(context)):
         if str(result.get("type", "")).lower() not in {"polygon", "polygonlabels"}:
             continue
@@ -446,8 +460,8 @@ def _find_polygon_prompt(
         )
         labels = [str(label) for label in value.get("polygonlabels") or value.get("labels") or []]
         if len(points) >= 3:
-            return points, hole_points, labels, value
-    return [], [], [], {}
+            return points, hole_points, labels, value, result.get("from_name")
+    return [], [], [], {}, None
 
 
 def parse_polygon_prompt(
@@ -457,7 +471,9 @@ def parse_polygon_prompt(
     to_name: str | None = None,
     item_index: int | None = None,
 ) -> tuple[list[tuple[int, int]], list[str]]:
-    points, _hole_points, labels, _value = _find_polygon_prompt(context, width, height, to_name, item_index)
+    points, _hole_points, labels, _value, _from_name = _find_polygon_prompt(
+        context, width, height, to_name, item_index
+    )
     return points, labels
 
 
@@ -694,12 +710,28 @@ def predict_task(task: dict[str, Any], spec: LabelSpec, context: Any, settings: 
     image = fetch_image(image_source, settings)
     height, width = image.shape[:2]
     rectangle, positives, backgrounds, prompt_labels = parse_prompts(context, width, height, to_name, item_index)
-    polygon_anchors, hole_anchors, polygon_prompt_labels, polygon_value = _find_polygon_prompt(
-        context, width, height, to_name, item_index
+    (
+        polygon_anchors,
+        hole_anchors,
+        polygon_prompt_labels,
+        polygon_value,
+        polygon_prompt_from_name,
+    ) = _find_polygon_prompt(context, width, height, to_name, item_index)
+
+    polygon_specs = spec.polygon_specs
+    if not polygon_specs and spec.polygon_from_name:
+        polygon_specs = (PolygonSpec(spec.polygon_from_name, spec.polygon_labels),)
+    polygon_spec = next(
+        (
+            candidate
+            for candidate in polygon_specs
+            if polygon_prompt_from_name == _render_template(candidate.from_name, dynamic_index)
+        ),
+        polygon_specs[0] if polygon_specs else None,
     )
 
-    if polygon_anchors and spec.polygon_from_name:
-        polygon_labels = spec.polygon_labels or spec.labels
+    if polygon_anchors and polygon_spec:
+        polygon_labels = polygon_spec.labels or spec.labels
         selected_label = _selected_label(polygon_labels, polygon_prompt_labels, context)
         points = trace_polygon(image, polygon_anchors)
         ring_polygon = bool(polygon_value.get("ring"))
@@ -730,7 +762,7 @@ def predict_task(task: dict[str, Any], spec: LabelSpec, context: Any, settings: 
             })
         result = [{
             "id": uuid.uuid4().hex[:10],
-            "from_name": _render_template(spec.polygon_from_name, dynamic_index),
+            "from_name": _render_template(polygon_spec.from_name, dynamic_index),
             "to_name": to_name,
             "type": "polygonlabels",
             "value": value,

@@ -28,6 +28,9 @@ const _Tool = types
       get iconComponent() {
         return self.dynamic ? NodeViews.EllipseRegionModel.altIcon : NodeViews.EllipseRegionModel.icon;
       },
+      get shouldRenderView() {
+        return true;
+      },
       get defaultDimensions() {
         const { radius } = DEFAULT_DIMENSIONS.ellipse;
 

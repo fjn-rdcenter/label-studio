@@ -42,19 +42,23 @@ export const getObjectControls = (item) =>
 
 export const getObjectLabels = (item) => {
   const controls = getObjectControls(item);
-  const seen = new Set();
+  const labelsByValue = new Map();
 
-  // Gộp nhãn từ mọi loại hình, bỏ nhãn ẩn và loại bản sao khi cùng giá trị xuất hiện ở nhiều control.
-  return controls.flatMap((control) =>
-    (control.tiedChildren || []).flatMap((label) => {
+  // visible=false chỉ ẩn Label UI gốc. Object panel vẫn hiển thị mọi object type,
+  // nhưng ưu tiên occurrence visible để giữ đúng drawing control khi nhiều control dùng chung một label.
+  controls.forEach((control) => {
+    (control.tiedChildren || []).forEach((label) => {
       const value = childResultValue(label);
       const key = resultValueKey(value);
+      const existing = labelsByValue.get(key);
 
-      if (label.visible === false || seen.has(key)) return [];
-      seen.add(key);
-      return [{ control, key, label, value }];
-    }),
-  );
+      if (!existing || (existing.label.visible === false && label.visible !== false)) {
+        labelsByValue.set(key, { control, key, label, value });
+      }
+    });
+  });
+
+  return Array.from(labelsByValue.values());
 };
 
 export const getEventControl = (item, frameIndex) => {
