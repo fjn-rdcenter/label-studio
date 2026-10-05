@@ -101,6 +101,11 @@ class AnnotationSerializer(FlexFieldsModelSerializer):
         if value not in [choice.value for choice in Annotation.QualityLevel]:
             raise ValidationError('quality_level must be 1, 2, or 3')
 
+        # full round-trip payloads re-send the existing quality_level unchanged;
+        # only validate role/transition rules when an actual change is requested
+        if self.instance is not None and value == self.instance.quality_level:
+            return value
+
         user = self.context['request'].user
         project = self.instance.project if self.instance is not None else self.context['view'].get_parent_object().project
         if self.instance is not None and value < self.instance.quality_level:
@@ -126,13 +131,10 @@ class AnnotationSerializer(FlexFieldsModelSerializer):
     def update(self, instance, validated_data):
         if 'quality_level' in validated_data:
             if validated_data['quality_level'] == instance.quality_level:
-                logger.warning(
-                    'Annotation update has no quality level change: annotation=%s user=%s quality_level=%s',
-                    instance.pk,
-                    self.context['request'].user.pk,
-                    instance.quality_level,
-                )
-            validated_data['quality_updated_by'] = self.context['request'].user
+                # unchanged value from a full round-trip payload, not an actual transition
+                validated_data.pop('quality_level')
+            else:
+                validated_data['quality_updated_by'] = self.context['request'].user
         return super().update(instance, validated_data)
 
     def create(self, *args, **kwargs):
