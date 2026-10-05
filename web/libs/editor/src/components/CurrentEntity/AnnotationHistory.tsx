@@ -41,7 +41,7 @@ const injector = inject(({ store }) => {
   return {
     annotationStore: as,
     selected: as?.selected,
-    createdBy: selected?.user ?? { email: selected?.createdBy },
+    createdBy: selected?.user ?? { email: selected?.updatedBy || selected?.createdBy },
     createdDate: selected?.createdDate,
     history: as?.history,
     selectedHistory: as?.selectedHistory,
@@ -67,7 +67,7 @@ const DraftState: FC<{
   return (
     <HistoryItem
       key="draft"
-      user={annotation.user ?? { email: annotation.createdBy }}
+      user={annotation.user ?? { email: annotation.updatedBy || annotation.createdBy }}
       date={annotation.draftSaved}
       extra={
         annotation.isDraftSaving ? (

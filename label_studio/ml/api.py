@@ -375,6 +375,7 @@ class MLBackendInteractiveAnnotating(APIView):
         """
         ml_backend = generics.get_object_or_404(MLBackend, pk=self.kwargs['pk'])
         self.check_object_permissions(self.request, ml_backend)
+
         serializer = MLInteractiveAnnotatingRequest(data=request.data)
         serializer.is_valid(raise_exception=True)
 

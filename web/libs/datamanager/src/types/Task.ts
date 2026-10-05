@@ -3,6 +3,7 @@ type DateTime = string;
 export interface APIAnnotation {
   id: number;
   created_username?: string;
+  updated_username?: string;
   created_ago: string;
   completed_by?: string;
 

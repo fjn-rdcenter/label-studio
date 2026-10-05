@@ -29,6 +29,7 @@ services:
       # - .:/label-studio    # for dev 
       - .data/label_studio_data:/label-studio/data # App data
       - .data/imagedata/AI01:/label-studio/files/AI01 # Mount image data
+      - .data/imagedata/AI05:/label-studio/files/AI05 # Mount image data
   lb_backend:
     image: postgres:14
     container_name: ls-db

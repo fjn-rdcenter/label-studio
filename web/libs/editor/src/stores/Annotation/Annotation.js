@@ -114,6 +114,7 @@ export const Annotation = types
     createdDate: types.optional(types.string, Utils.UDate.currentISODate()),
     createdAgo: types.maybeNull(types.string),
     createdBy: types.optional(types.string, "Admin"),
+    updatedBy: types.optional(types.string, ""),
     user: types.optional(types.maybeNull(types.safeReference(UserExtended)), null),
 
     parent_prediction: types.maybeNull(types.integer),
