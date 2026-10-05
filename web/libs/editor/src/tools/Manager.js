@@ -115,7 +115,12 @@ class ToolsManager {
         const type = tag.type.replace(/labels$/, "");
 
         if (tag.type === "labels") return false;
-        if (type === toolType) return false;
+        if (type === toolType) {
+          const usesExclusivePolygonControl =
+            toolType === "polygon" && tool.control.polygonmode && tool.control.polygonmode !== "both";
+
+          return usesExclusivePolygonControl && tag !== tool.control;
+        }
         return true;
       });
 

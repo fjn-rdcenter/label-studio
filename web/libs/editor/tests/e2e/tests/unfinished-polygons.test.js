@@ -27,6 +27,15 @@ const CONFIG_MULTIPLE = `
 </View>
 `;
 
+const CONFIG_RING_ONLY = `
+<View>
+  <Image name="img" value="$image" />
+  <PolygonLabels name="ring" toName="img" polygonMode="ring">
+    <Label value="Ring" background="red" />
+  </PolygonLabels>
+</View>
+`;
+
 const FLAGS = {
   ff_feat_front_DEV_2576_undo_key_points_polygon_short: true,
   ff_front_dev_2431_delete_polygon_points_080622_short: true,
@@ -65,6 +74,41 @@ Scenario("Drafts for unfinished polygons", async ({ I, LabelStudio, AtLabels, At
 
   assert.strictEqual(draft[0].value.points.length, 3);
   assert.strictEqual(draft[0].value.closed, false);
+});
+
+Scenario("Drawing with a ring-only polygon control", async ({ I, LabelStudio, AtLabels, AtImageView }) => {
+  I.amOnPage("/");
+  LabelStudio.setFeatureFlags(FLAGS);
+  LabelStudio.init({
+    config: CONFIG_RING_ONLY,
+    data: {
+      image: IMAGE,
+    },
+  });
+
+  AtImageView.waitForImage();
+  await AtImageView.lookForStage();
+
+  AtLabels.clickLabel("Ring");
+  AtImageView.drawByClickingPoints([
+    [50, 50],
+    [150, 50],
+    [150, 150],
+    [50, 50],
+    [80, 80],
+    [120, 80],
+    [120, 120],
+    [80, 80],
+  ]);
+
+  const result = await LabelStudio.serialize();
+
+  assert.strictEqual(result.length, 1);
+  assert.strictEqual(result[0].from_name, "ring");
+  assert.strictEqual(result[0].value.ring, true);
+  assert.strictEqual(result[0].value.points.length, 3);
+  assert.strictEqual(result[0].value.holes[0].length, 3);
+  assert.strictEqual(result[0].value.closed, true);
 });
 
 Scenario("Saving polygon drawing steps to history", async ({ I, LabelStudio, AtLabels, AtImageView }) => {

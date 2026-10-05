@@ -1,7 +1,7 @@
 import { types } from "mobx-state-tree";
 import { observe } from "mobx";
 
-import { IconRingPolygonTool } from "../assets/icons";
+import { IconRingPolygonTool, IconRingPolygonToolSmart } from "../assets/icons";
 import { DrawingTool } from "../mixins/DrawingTool";
 import ToolMixin from "../mixins/Tool";
 import BaseTool, { DEFAULT_DIMENSIONS } from "./Base";
@@ -31,7 +31,7 @@ const RingPolygonBase = types
         ring: true,
         outerclosed: false,
         closed: false,
-        dynamic: false,
+        dynamic: Boolean(self.isOpenCV && self.control.smartEnabled),
       };
     },
   }))
@@ -131,6 +131,26 @@ const RingPolygonIdentity = types
     },
   }));
 
+const OpenCVRingPolygonIdentity = types
+  .model("OpenCVRingPolygonIdentity", {
+    group: "opencv",
+    shortcut: "shift+i",
+  })
+  .volatile(() => ({
+    isOpenCV: true,
+  }))
+  .views((self) => ({
+    get viewTooltip() {
+      return self.control.smartEnabled ? "OpenCV Detect Ring Polygon" : "Ring Polygon (outer + inner)";
+    },
+    get iconComponent() {
+      return IconRingPolygonToolSmart;
+    },
+    get shouldRenderView() {
+      return true;
+    },
+  }));
+
 const RingPolygon = types.compose(
   "RingPolygonTool",
   ToolMixin,
@@ -140,4 +160,13 @@ const RingPolygon = types.compose(
   RingPolygonIdentity,
 );
 
-export { RingPolygon };
+const OpenCVRingPolygon = types.compose(
+  "OpenCVRingPolygonTool",
+  ToolMixin,
+  BaseTool,
+  DrawingTool,
+  RingPolygonBase,
+  OpenCVRingPolygonIdentity,
+);
+
+export { OpenCVRingPolygon, RingPolygon };

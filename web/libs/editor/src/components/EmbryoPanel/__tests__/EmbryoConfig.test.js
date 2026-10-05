@@ -10,7 +10,7 @@ import {
 } from "../EmbryoConfig";
 
 describe("EmbryoPanel config discovery", () => {
-  it("uses custom visible labels from supported image controls", () => {
+  it("uses every custom label from supported image controls", () => {
     const item = {
       states: () => [
         { type: "keypointlabels", tiedChildren: [{ value: "Center", visible: true }] },
@@ -24,7 +24,11 @@ describe("EmbryoPanel config discovery", () => {
       ],
     };
 
-    expect(getObjectLabels(item).map(({ label }) => label.value)).toEqual(["Custom object", "Center"]);
+    expect(getObjectLabels(item).map(({ label }) => label.value)).toEqual([
+      "Custom object",
+      "Hidden object",
+      "Center",
+    ]);
   });
 
   it("deduplicates matching object labels and prefers polygon controls", () => {
@@ -36,6 +40,34 @@ describe("EmbryoPanel config discovery", () => {
     };
 
     expect(getObjectLabels(item)).toMatchObject([{ control: { name: "polygon" }, value: "PN" }]);
+  });
+
+  it("prefers a visible lower-priority occurrence over a hidden one", () => {
+    const item = {
+      states: () => [
+        { type: "polygonlabels", name: "polygon", tiedChildren: [{ value: "Membrane", visible: false }] },
+        { type: "ellipselabels", name: "ellipse", tiedChildren: [{ value: "Membrane", visible: true }] },
+      ],
+    };
+
+    expect(getObjectLabels(item)).toMatchObject([{ control: { name: "ellipse" }, value: "Membrane" }]);
+  });
+
+  it("keeps PN and PN Borderline as distinct labels without exact duplicates", () => {
+    const item = {
+      states: () => [
+        {
+          type: "polygonlabels",
+          tiedChildren: [
+            { value: "PN", visible: true },
+            { value: "PN Borderline", visible: false },
+          ],
+        },
+        { type: "rectanglelabels", tiedChildren: [{ value: "PN", visible: true }] },
+      ],
+    };
+
+    expect(getObjectLabels(item).map(({ value }) => value)).toEqual(["PN", "PN Borderline"]);
   });
 
   it("activates an object label only on the control that creates the region", () => {

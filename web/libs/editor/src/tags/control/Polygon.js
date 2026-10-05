@@ -35,7 +35,9 @@ const hotkeys = Hotkey("Polygons");
  * @param {rectangle|circle} [pointStyle=circle]  - Style of points
  * @param {boolean} [smart]                       - Show smart tool for interactive pre-annotations
  * @param {boolean} [smartOnly]                   - Only show smart tool for interactive pre-annotations
+ * @param {boolean} [showManualTools=true]        - Show separate manual polygon and ring polygon tools
  * @param {pixel|none} [snap=none]                - Snap polygon to image pixels
+ * @param {polygon|ring|both} [polygonMode=both]  - Limit this control to polygon or ring polygon tools
  */
 const TagAttrs = types.model({
   toname: types.maybeNull(types.string),
@@ -50,6 +52,8 @@ const TagAttrs = types.model({
 
   pointsize: types.optional(types.string, "small"),
   pointstyle: types.optional(types.string, "circle"),
+  polygonmode: types.optional(types.enumeration(["polygon", "ring", "both"]), "both"),
+  showmanualtools: types.optional(types.boolean, true),
 });
 
 const Validation = types.model({
@@ -64,7 +68,14 @@ const Model = types
     _value: types.optional(types.string, ""),
   })
   .volatile((self) => ({
-    toolNames: self.smart ? ["Polygon", "RingPolygon", "OpenCVPolygon"] : ["Polygon", "RingPolygon"],
+    toolNames: [
+      ...(self.polygonmode !== "ring"
+        ? [...(self.showmanualtools ? ["Polygon"] : []), ...(self.smart ? ["OpenCVPolygon"] : [])]
+        : []),
+      ...(self.polygonmode !== "polygon"
+        ? [...(self.showmanualtools ? ["RingPolygon"] : []), ...(self.smart ? ["OpenCVRingPolygon"] : [])]
+        : []),
+    ],
   }))
   .actions((self) => {
     return {

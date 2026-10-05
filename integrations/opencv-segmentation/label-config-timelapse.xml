@@ -31,9 +31,29 @@
     </View>
 
     <View style="display:none">
-      <PolygonLabels name="pl-{{idx}}" toName="timelapse_{{idx}}" smart="true"
-                     fillOpacity="0.2" strokeWidth="2"
-                     pointStyle="circle" pointSize="small">
+      <EllipseBasedPolygonLabels name="ellipse-{{idx}}" toName="timelapse_{{idx}}" smart="false"
+                                 opacity="0.15" strokeWidth="2">
+        <Label value="PN" background="#2563EB"/>
+        <Label value="MicroPN" background="#16A34A"/>
+        <Label value="Blastomere (Cell)" background="#38BDF8"/>
+        <Label value="Fragment" background="#84CC16"/>
+        <Label value="Blastocoel" background="#0EA5E9"/>
+        <Label value="ICM" background="#22C55E"/>
+        <Label value="TE" background="#EC4899"/>
+        <Label value="Hatching opening" background="#F97316"/>
+        <Label value="ZP" background="#A855F7"/>
+        <Label value="Perivitelline space" background="#14B8A6"/>
+        <Label value="PB" background="#F59E0B"/>
+        <Label value="Vacuole" background="#EAB308"/>
+        <Label value="PN Borderline" background="#22C55E" visible="false"/>
+        <Label value="Membrane" background="#EC4899" visible="false"/>
+      </EllipseBasedPolygonLabels>
+    </View>
+
+    <View style="display:none">
+      <PolygonLabels name="pl-{{idx}}" toName="timelapse_{{idx}}" polygonMode="polygon" smart="true" showManualTools="false"
+                      fillOpacity="0.2" strokeWidth="2"
+                      pointStyle="circle" pointSize="small">
         <Label value="PN" background="#2563EB" hotkey="1"/>
         <Label value="MicroPN" background="#16A34A" hotkey="2"/>
         <Label value="Blastomere (Cell)" background="#38BDF8" hotkey="3"/>
@@ -52,11 +72,24 @@
     </View>
 
     <View style="display:none">
-      <EllipseLabels name="ellipse-{{idx}}" toName="timelapse_{{idx}}" smart="false"
-                     fillOpacity="0.15" strokeWidth="2">
-        <Label value="PN" background="#F59E0B"/>
-        <Label value="Membrane" background="#EC4899"/>
-      </EllipseLabels>
+      <PolygonLabels name="ring-{{idx}}" toName="timelapse_{{idx}}" polygonMode="ring" smart="true" showManualTools="false"
+                     fillOpacity="0.2" strokeWidth="2"
+                     pointStyle="circle" pointSize="small">
+        <Label value="PN" background="#2563EB"/>
+        <Label value="MicroPN" background="#16A34A"/>
+        <Label value="Blastomere (Cell)" background="#38BDF8"/>
+        <Label value="Fragment" background="#84CC16"/>
+        <Label value="Blastocoel" background="#0EA5E9"/>
+        <Label value="ICM" background="#22C55E"/>
+        <Label value="TE" background="#EC4899"/>
+        <Label value="Hatching opening" background="#F97316"/>
+        <Label value="ZP" background="#A855F7"/>
+        <Label value="Perivitelline space" background="#14B8A6"/>
+        <Label value="PB" background="#F59E0B"/>
+        <Label value="Vacuole" background="#EAB308"/>
+        <Label value="PN Borderline" background="#22C55E" visible="false"/>
+        <Label value="Membrane" background="#EC4899" visible="false"/>
+      </PolygonLabels>
     </View>
 
     <View style="display:none">

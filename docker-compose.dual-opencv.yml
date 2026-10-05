@@ -1,0 +1,118 @@
+services:
+  label-studio-8080:
+    image: label-studio:1.13.1.20260930.1.fjs
+    depends_on:
+      - postgres-8080
+    restart: always
+    environment:
+      COLLECT_ANALYTICS: "False"
+      collect_analytics: "0"
+      LOCAL_FILES_SERVING_ENABLED: "True"
+      LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT: /label-studio/files
+      LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK: "true"
+      LABEL_STUDIO_USERNAME: example@email.com
+      LABEL_STUDIO_PASSWORD: Abc12345
+      LABEL_STUDIO_HOST: http://localhost:8080
+      DJANGO_DB: default
+      POSTGRE_NAME: labelstudio
+      POSTGRE_USER: postgres
+      POSTGRE_PASSWORD: postgres
+      POSTGRE_PORT: 5432
+      POSTGRE_HOST: postgres-8080
+      fflag_feat_front_lsdv_4583_multi_image_segmentation_short: "1"
+      ff_front_1170_outliner_030222_short: "1"
+      fflag_feat_front_dev_3873_labeling_ui_improvements_short: "1"
+    ports:
+      - "8080:8080"
+    volumes:
+      - .data/label_studio_8080/data:/label-studio/data
+      - .data/imagedata/AI01:/label-studio/files/AI01
+
+  postgres-8080:
+    image: postgres:14
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: labelstudio
+    volumes:
+      - .data/label_studio_8080/postgres:/var/lib/postgresql/data
+
+  opencv-8080:
+    build:
+      context: ./integrations/opencv-segmentation
+    depends_on:
+      - label-studio-8080
+    restart: unless-stopped
+    env_file:
+      - path: ./.data/label_studio_8080/opencv.env
+        required: false
+    environment:
+      LABEL_STUDIO_URL: http://label-studio-8080:8080
+      ALLOWED_IMAGE_HOSTS: ${OPENCV_8080_ALLOWED_IMAGE_HOSTS:-}
+      DEFAULT_RING_WIDTH: ${OPENCV_RING_WIDTH:-4}
+      IMAGE_FETCH_TIMEOUT: ${OPENCV_IMAGE_FETCH_TIMEOUT:-45}
+      MAX_IMAGE_BYTES: ${OPENCV_MAX_IMAGE_BYTES:-20971520}
+      MAX_IMAGE_PIXELS: ${OPENCV_MAX_IMAGE_PIXELS:-40000000}
+      WEB_CONCURRENCY: ${OPENCV_WEB_CONCURRENCY:-2}
+    expose:
+      - "9090"
+
+  label-studio-8081:
+    image: label-studio:1.13.1.20260930.1.fjs
+    depends_on:
+      - postgres-8081
+    restart: always
+    environment:
+      COLLECT_ANALYTICS: "False"
+      collect_analytics: "0"
+      LOCAL_FILES_SERVING_ENABLED: "True"
+      LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT: /label-studio/files
+      LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK: "true"
+      LABEL_STUDIO_USERNAME: example@email.com
+      LABEL_STUDIO_PASSWORD: Abc12345
+      LABEL_STUDIO_HOST: http://localhost:8081
+      DJANGO_DB: default
+      POSTGRE_NAME: labelstudio
+      POSTGRE_USER: postgres
+      POSTGRE_PASSWORD: postgres
+      POSTGRE_PORT: 5432
+      POSTGRE_HOST: postgres-8081
+      fflag_feat_front_lsdv_4583_multi_image_segmentation_short: "1"
+      ff_front_1170_outliner_030222_short: "1"
+      fflag_feat_front_dev_3873_labeling_ui_improvements_short: "1"
+    ports:
+      - "8081:8080"
+    volumes:
+      - .data/label_studio_8081/data:/label-studio/data
+      - .data/imagedata/AI01:/label-studio/files/AI01
+
+  postgres-8081:
+    image: postgres:14
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: labelstudio
+    volumes:
+      - .data/label_studio_8081/postgres:/var/lib/postgresql/data
+
+  opencv-8081:
+    build:
+      context: ./integrations/opencv-segmentation
+    depends_on:
+      - label-studio-8081
+    restart: unless-stopped
+    env_file:
+      - path: ./.data/label_studio_8081/opencv.env
+        required: false
+    environment:
+      LABEL_STUDIO_URL: http://label-studio-8081:8080
+      ALLOWED_IMAGE_HOSTS: ${OPENCV_8081_ALLOWED_IMAGE_HOSTS:-}
+      DEFAULT_RING_WIDTH: ${OPENCV_RING_WIDTH:-4}
+      IMAGE_FETCH_TIMEOUT: ${OPENCV_IMAGE_FETCH_TIMEOUT:-45}
+      MAX_IMAGE_BYTES: ${OPENCV_MAX_IMAGE_BYTES:-20971520}
+      MAX_IMAGE_PIXELS: ${OPENCV_MAX_IMAGE_PIXELS:-40000000}
+      WEB_CONCURRENCY: ${OPENCV_WEB_CONCURRENCY:-2}
+    expose:
+      - "9090"

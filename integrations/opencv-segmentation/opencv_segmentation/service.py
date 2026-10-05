@@ -29,6 +29,12 @@ class ImageFetchError(RuntimeError):
  
  
 @dataclass(frozen=True)
+class PolygonSpec:
+    from_name: str
+    labels: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class LabelSpec:
     from_name: str
     to_name: str
@@ -37,8 +43,9 @@ class LabelSpec:
     labels: tuple[str, ...]
     polygon_from_name: str | None = None
     polygon_labels: tuple[str, ...] = ()
- 
- 
+    polygon_specs: tuple[PolygonSpec, ...] = ()
+
+
 def _tag_name(element: Any) -> str:
     return element.tag.rsplit("}", 1)[-1]
  
@@ -70,20 +77,27 @@ def parse_label_config(label_config: str | None) -> LabelSpec:
         for node in output.iter()
         if _tag_name(node).lower() == "label" and node.attrib.get("value")
     )
-    polygon = polygons[0] if polygons else None
-    polygon_labels = tuple(
-        node.attrib["value"]
-        for node in polygon.iter()
-        if _tag_name(node).lower() == "label" and node.attrib.get("value")
-    ) if polygon is not None else ()
+    polygon_specs = tuple(
+        PolygonSpec(
+            polygon.attrib.get("name", "polygon"),
+            tuple(
+                node.attrib["value"]
+                for node in polygon.iter()
+                if _tag_name(node).lower() == "label" and node.attrib.get("value")
+            ),
+        )
+        for polygon in polygons
+    )
+    polygon = polygon_specs[0] if polygon_specs else None
     return LabelSpec(
         from_name,
         to_name,
         image_expression or "$image",
         value_list is not None,
         labels or ("Object",),
-        polygon.attrib.get("name") if polygon is not None else None,
-        polygon_labels,
+        polygon.from_name if polygon is not None else None,
+        polygon.labels if polygon is not None else (),
+        polygon_specs,
     )
  
  
@@ -468,15 +482,29 @@ def parse_prompts(
             else:
                 positive_points.append(point)
     return rectangle, positive_points, background_points, prompt_labels
- 
- 
-def parse_polygon_prompt(
+
+
+def _parse_polygon_points(raw_points: Any, width: int, height: int) -> list[tuple[int, int]]:
+    points = []
+    for point in raw_points or []:
+        if not isinstance(point, (list, tuple)) or len(point) < 2:
+            continue
+        try:
+            x = int(round(float(point[0]) * width / 100.0))
+            y = int(round(float(point[1]) * height / 100.0))
+        except (TypeError, ValueError):
+            continue
+        points.append((min(max(x, 0), width - 1), min(max(y, 0), height - 1)))
+    return points
+
+
+def _find_polygon_prompt(
     context: Any,
     width: int,
     height: int,
     to_name: str | None = None,
     item_index: int | None = None,
-) -> tuple[list[tuple[int, int]], list[str]]:
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]], list[str], dict[str, Any], str | None]:
     for result in reversed(_context_results(context)):
         if str(result.get("type", "")).lower() not in {"polygon", "polygonlabels"}:
             continue
@@ -487,22 +515,30 @@ def parse_polygon_prompt(
             continue
  
         value = result.get("value") or {}
-        points = []
-        for point in value.get("points") or []:
-            if not isinstance(point, (list, tuple)) or len(point) < 2:
-                continue
-            try:
-                x = int(round(float(point[0]) * width / 100.0))
-                y = int(round(float(point[1]) * height / 100.0))
-            except (TypeError, ValueError):
-                continue
-            points.append((min(max(x, 0), width - 1), min(max(y, 0), height - 1)))
+        points = _parse_polygon_points(value.get("points"), width, height)
+        holes = value.get("holes") or []
+        hole_points = _parse_polygon_points(
+            holes[0] if holes and isinstance(holes[0], (list, tuple)) else [], width, height
+        )
         labels = [str(label) for label in value.get("polygonlabels") or value.get("labels") or []]
         if len(points) >= 3:
-            return points, labels
-    return [], []
- 
- 
+            return points, hole_points, labels, value, result.get("from_name")
+    return [], [], [], {}, None
+
+
+def parse_polygon_prompt(
+    context: Any,
+    width: int,
+    height: int,
+    to_name: str | None = None,
+    item_index: int | None = None,
+) -> tuple[list[tuple[int, int]], list[str]]:
+    points, _hole_points, labels, _value, _from_name = _find_polygon_prompt(
+        context, width, height, to_name, item_index
+    )
+    return points, labels
+
+
 def _least_cost_path(cost: np.ndarray, start: tuple[int, int], end: tuple[int, int]) -> list[tuple[int, int]]:
     height, width = cost.shape
     distance = math.hypot(end[0] - start[0], end[1] - start[1])
@@ -577,8 +613,60 @@ def trace_polygon(image: np.ndarray, anchors: list[tuple[int, int]]) -> list[tup
     simplified = cv2.approxPolyDP(contour, max(0.75, perimeter * 0.001), True).reshape(-1, 2)
     points = [(int(x), int(y)) for x, y in simplified]
     return points if len(points) >= 3 else anchors
- 
- 
+
+
+def order_ring_contours(
+    first_points: list[tuple[int, int]], second_points: list[tuple[int, int]], image_shape: tuple[int, int]
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]]] | None:
+    first = np.asarray(first_points, dtype=np.int32).reshape(-1, 1, 2)
+    second = np.asarray(second_points, dtype=np.int32).reshape(-1, 1, 2)
+    first_area = abs(cv2.contourArea(first))
+    second_area = abs(cv2.contourArea(second))
+    if first_area <= 0 or second_area <= 0:
+        return None
+
+    outer_points, inner_points = (
+        (first_points, second_points) if first_area >= second_area else (second_points, first_points)
+    )
+    outer = np.asarray(outer_points, dtype=np.int32).reshape(-1, 1, 2)
+    if any(cv2.pointPolygonTest(outer, point, False) <= 0 for point in inner_points):
+        height, width = image_shape
+        outer_mask = np.zeros((height, width), dtype=np.uint8)
+        inner_mask = np.zeros((height, width), dtype=np.uint8)
+        cv2.fillPoly(outer_mask, [outer], 255)
+        cv2.fillPoly(inner_mask, [np.asarray(inner_points, dtype=np.int32)], 255)
+
+        original_inner_area = np.count_nonzero(inner_mask)
+        safe_outer = cv2.erode(
+            outer_mask,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)),
+            iterations=1,
+            borderType=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
+        repaired_mask = cv2.bitwise_and(inner_mask, safe_outer)
+        contours, _ = cv2.findContours(repaired_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours or original_inner_area == 0:
+            return None
+
+        repaired = max(contours, key=cv2.contourArea)
+        repaired_component = np.zeros_like(repaired_mask)
+        cv2.drawContours(repaired_component, [repaired], -1, 255, cv2.FILLED)
+        if np.count_nonzero(repaired_component) / original_inner_area < 0.7:
+            return None
+
+        perimeter = cv2.arcLength(repaired, True)
+        simplified = cv2.approxPolyDP(repaired, max(0.75, perimeter * 0.001), True).reshape(-1, 2)
+        if len(simplified) < 3:
+            return None
+        inner_points = [(int(x), int(y)) for x, y in simplified]
+
+    inner = np.asarray(inner_points, dtype=np.int32).reshape(-1, 1, 2)
+    if cv2.contourArea(outer, oriented=True) * cv2.contourArea(inner, oriented=True) > 0:
+        inner_points.reverse()
+    return outer_points, inner_points
+
+
 def _candidate_score(mask: np.ndarray, positives: list, backgrounds: list) -> float:
     area_ratio = float(np.count_nonzero(mask)) / mask.size
     border = np.concatenate((mask[0], mask[-1], mask[:, 0], mask[:, -1]))
@@ -685,22 +773,62 @@ def predict_task(task: dict[str, Any], spec: LabelSpec, context: Any, settings: 
     image = fetch_image_replace(image_source, settings)
     height, width = image.shape[:2]
     rectangle, positives, backgrounds, prompt_labels = parse_prompts(context, width, height, to_name, item_index)
-    polygon_anchors, polygon_prompt_labels = parse_polygon_prompt(context, width, height, to_name, item_index)
- 
-    if polygon_anchors and spec.polygon_from_name:
-        polygon_labels = spec.polygon_labels or spec.labels
+    (
+        polygon_anchors,
+        hole_anchors,
+        polygon_prompt_labels,
+        polygon_value,
+        polygon_prompt_from_name,
+    ) = _find_polygon_prompt(context, width, height, to_name, item_index)
+
+    polygon_specs = spec.polygon_specs
+    if not polygon_specs and spec.polygon_from_name:
+        polygon_specs = (PolygonSpec(spec.polygon_from_name, spec.polygon_labels),)
+    polygon_spec = next(
+        (
+            candidate
+            for candidate in polygon_specs
+            if polygon_prompt_from_name == _render_template(candidate.from_name, dynamic_index)
+        ),
+        polygon_specs[0] if polygon_specs else None,
+    )
+
+    if polygon_anchors and polygon_spec:
+        polygon_labels = polygon_spec.labels or spec.labels
         selected_label = _selected_label(polygon_labels, polygon_prompt_labels, context)
         points = trace_polygon(image, polygon_anchors)
+        ring_polygon = bool(polygon_value.get("ring"))
+        if isinstance(context, dict):
+            if "ring_polygon" in context:
+                ring_polygon = bool(context["ring_polygon"])
+
+        polygon_geometry = None
+        if ring_polygon:
+            if len(hole_anchors) < 3:
+                return {"result": [], "score": 0.0, "model_version": model_version}
+            polygon_geometry = order_ring_contours(points, trace_polygon(image, hole_anchors), image.shape[:2])
+        if ring_polygon and not polygon_geometry:
+            return {"result": [], "score": 0.0, "model_version": model_version}
+        if polygon_geometry:
+            points, inner_points = polygon_geometry
+
+        value = {
+            "points": [[x * 100.0 / width, y * 100.0 / height] for x, y in points],
+            "polygonlabels": [selected_label],
+            "closed": True,
+        }
+        if polygon_geometry:
+            value.update({
+                "holes": [[[x * 100.0 / width, y * 100.0 / height] for x, y in inner_points]],
+                "ring": True,
+                "outerclosed": True,
+            })
         result = [{
             "id": uuid.uuid4().hex[:10],
-            "from_name": _render_template(spec.polygon_from_name, dynamic_index),
+            "from_name": _render_template(polygon_spec.from_name, dynamic_index),
             "to_name": to_name,
             "type": "polygonlabels",
-            "value": {
-                "points": [[x * 100.0 / width, y * 100.0 / height] for x, y in points],
-                "polygonlabels": [selected_label],
-                "closed": True,
-            },
+            "value": value,
             "original_width": width,
             "original_height": height,
             "image_rotation": 0,

@@ -148,6 +148,148 @@ def test_polygon_prompt_returns_edge_traced_polygon(app):
     assert result["value"]["polygonlabels"] == ["Cell"]
     assert result["value"]["closed"] is True
     assert len(result["value"]["points"]) >= 4
+    assert "holes" not in result["value"]
+    assert "ring" not in result["value"]
+
+
+def test_polygon_prompt_returns_to_matching_polygon_control(app):
+    payload = _payload()
+    payload["label_config"] = LABEL_CONFIG.replace(
+        "</View>",
+        '<PolygonLabels name="ring-outline" toName="scan"><Label value="Ring Cell"/></PolygonLabels></View>',
+    )
+    payload["params"]["context"]["result"] = [
+        {
+            "type": "polygonlabels",
+            "from_name": "ring-outline",
+            "to_name": "scan",
+            "value": {
+                "points": [[50, 25], [68, 50], [50, 75], [32, 50]],
+                "polygonlabels": ["Ring Cell"],
+            },
+        }
+    ]
+
+    response = app.test_client().post("/predict", json=payload)
+    result = response.get_json()["results"][0]["result"][0]
+
+    assert response.status_code == 200
+    assert result["from_name"] == "ring-outline"
+    assert result["value"]["polygonlabels"] == ["Ring Cell"]
+
+
+def test_polygon_ring_prompt_traces_both_contours(app, monkeypatch):
+    monkeypatch.setattr("opencv_segmentation.service.trace_polygon", lambda _image, anchors: anchors)
+    payload = _payload()
+    payload["params"]["context"]["result"] = [
+        {
+            "type": "polygonlabels",
+            "to_name": "scan",
+            "value": {
+                "points": [[50, 20], [75, 50], [50, 80], [25, 50]],
+                "polygonlabels": ["Cell"],
+                "ring": True,
+                "outerclosed": True,
+                "holes": [[[50, 35], [62, 50], [50, 65], [38, 50]]],
+            },
+        }
+    ]
+
+    response = app.test_client().post("/predict", json=payload)
+    result = response.get_json()["results"][0]["result"][0]
+    value = result["value"]
+
+    assert response.status_code == 200
+    assert result["type"] == "polygonlabels"
+    assert value["polygonlabels"] == ["Cell"]
+    assert value["ring"] is True
+    assert value["outerclosed"] is True
+    assert value["closed"] is True
+    assert len(value["points"]) >= 3
+    assert len(value["holes"]) == 1
+    assert len(value["holes"][0]) >= 3
+
+    outer = np.asarray(value["points"], dtype=np.float32)
+    inner = np.asarray(value["holes"][0], dtype=np.float32)
+    assert abs(cv2.contourArea(inner)) < abs(cv2.contourArea(outer))
+    assert all(cv2.pointPolygonTest(outer, tuple(map(float, point)), False) >= 0 for point in inner)
+
+
+def test_polygon_ring_uses_second_contour_as_outer_when_it_is_larger(app, monkeypatch):
+    monkeypatch.setattr("opencv_segmentation.service.trace_polygon", lambda _image, anchors: anchors)
+    payload = _payload()
+    payload["params"]["context"]["result"] = [
+        {
+            "type": "polygonlabels",
+            "to_name": "scan",
+            "value": {
+                "points": [[50, 35], [62, 50], [50, 65], [38, 50]],
+                "polygonlabels": ["Cell"],
+                "ring": True,
+                "outerclosed": True,
+                "holes": [[[50, 20], [75, 50], [50, 80], [25, 50]]],
+            },
+        }
+    ]
+
+    response = app.test_client().post("/predict", json=payload)
+    value = response.get_json()["results"][0]["result"][0]["value"]
+
+    assert response.status_code == 200
+    assert abs(cv2.contourArea(np.asarray(value["points"], dtype=np.float32))) > abs(
+        cv2.contourArea(np.asarray(value["holes"][0], dtype=np.float32))
+    )
+
+
+def test_polygon_ring_repairs_a_small_inner_outer_overlap(app, monkeypatch):
+    monkeypatch.setattr("opencv_segmentation.service.trace_polygon", lambda _image, anchors: anchors)
+    payload = _payload()
+    payload["params"]["context"]["result"] = [
+        {
+            "type": "polygonlabels",
+            "to_name": "scan",
+            "value": {
+                "points": [[20, 20], [80, 20], [80, 80], [20, 80]],
+                "polygonlabels": ["Cell"],
+                "ring": True,
+                "outerclosed": True,
+                "holes": [[[19, 45], [30, 30], [70, 30], [70, 70], [30, 70]]],
+            },
+        }
+    ]
+
+    response = app.test_client().post("/predict", json=payload)
+    value = response.get_json()["results"][0]["result"][0]["value"]
+    outer = np.asarray(value["points"], dtype=np.float32)
+
+    assert response.status_code == 200
+    assert value["ring"] is True
+    assert all(cv2.pointPolygonTest(outer, tuple(map(float, point)), False) > 0 for point in value["holes"][0])
+
+
+def test_polygon_ring_rejects_a_large_inner_outer_overlap(app, monkeypatch):
+    monkeypatch.setattr("opencv_segmentation.service.trace_polygon", lambda _image, anchors: anchors)
+    payload = _payload()
+    payload["params"]["context"]["result"] = [
+        {
+            "type": "polygonlabels",
+            "to_name": "scan",
+            "value": {
+                "points": [[20, 20], [80, 20], [80, 80], [20, 80]],
+                "polygonlabels": ["Cell"],
+                "ring": True,
+                "outerclosed": True,
+                "holes": [[[60, 5], [95, 5], [95, 95], [60, 95]]],
+            },
+        }
+    ]
+
+    response = app.test_client().post("/predict", json=payload)
+    prediction = response.get_json()["results"][0]
+
+    assert response.status_code == 200
+    assert prediction["result"] == []
+    assert prediction["score"] == 0.0
 
 
 def test_ring_mode_has_empty_center(app):

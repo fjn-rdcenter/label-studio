@@ -214,7 +214,13 @@ const Model = types
         const [cursorX, cursorY] = self.parent.fixZoomedCoords([offsetX, offsetY]);
         const point = getAnchorPoint({ flattenedPoints, cursorX, cursorY });
 
-        self.insertPoint(insertIdx, point[0], point[1], contour);
+        const insertedPoint = self.insertPoint(insertIdx, point[0], point[1], contour);
+        if (insertedPoint) self.notifyPointsChanged();
+      },
+
+      notifyPointsChanged() {
+        if (self.isDrawing || !self.closed || self.isReadOnly() || self.fromSuggestion) return;
+        self.notifyDrawingFinished();
       },
 
       deletePoint(point) {
@@ -226,6 +232,7 @@ const Model = types
         if (willNotEliminateClosedShape || isLastPoint) return;
         if (isSelected) self.selectedPoint = null;
         destroy(point);
+        self.notifyPointsChanged();
       },
 
       addPoint(x, y) {
@@ -809,7 +816,11 @@ const HtxPolygonView = ({ item, setShapeRef }) => {
   }, [item.bboxCoords.left, item.bboxCoords.top]);
 
   useEffect(() => {
-    if (isFF(FF_DEV_2432) && !item.closed) item.control.tools.Polygon.resumeUnfinishedRegion(item);
+    if (isFF(FF_DEV_2432) && !item.closed) {
+      const toolName = item.ring ? "RingPolygon" : "Polygon";
+
+      item.control.tools[toolName]?.resumeUnfinishedRegion(item);
+    }
   }, [item.closed]);
 
   if (!item.parent) return null;
@@ -818,7 +829,9 @@ const HtxPolygonView = ({ item, setShapeRef }) => {
   const stage = item.parent?.stageRef;
   const selectedTool = item.parent?.getToolsManager().findSelectedTool();
   const isCreatingPolygon = item.annotation?.isDrawing
-    && ["PolygonTool", "RingPolygonTool", "OpenCVPolygonTool"].includes(selectedTool?.toolName);
+    && ["PolygonTool", "RingPolygonTool", "OpenCVPolygonTool", "OpenCVRingPolygonTool"].includes(
+      selectedTool?.toolName,
+    );
 
   return (
     <Group

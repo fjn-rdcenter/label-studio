@@ -55,6 +55,7 @@ const objectLabel = (region) => region.labels?.[0] || region.labelName || "Objec
 const objectShape = (region) =>
   ({
     brushregion: "Brush",
+    ellipsebasedpolygonregion: "Ellipse",
     ellipseregion: "Ellipse",
     keypointregion: "Keypoint",
     polygonregion: region.ring ? "Ring Polygon" : "Polygon",
@@ -63,6 +64,7 @@ const objectShape = (region) =>
 const objectShapeIcon = (region) =>
   ({
     brushregion: IconBrushTool,
+    ellipsebasedpolygonregion: IconCircleTool,
     ellipseregion: IconCircleTool,
     keypointregion: IconKeypointsTool,
     polygonregion: region.ring ? IconRingPolygonTool : IconPolygonTool,
@@ -96,7 +98,14 @@ const ObjectTab = observer(({ currentEntity, item }) => {
   const primaryLabels = labels.filter(({ label }) => !RARE_OBJECTS.has(childDisplayValue(label)));
   const extendedLabels = labels.filter(({ label }) => RARE_OBJECTS.has(childDisplayValue(label)));
   const regions = item.regs.filter((region) =>
-    ["brushregion", "ellipseregion", "keypointregion", "polygonregion", "rectangleregion"].includes(region.type),
+    [
+      "brushregion",
+      "ellipsebasedpolygonregion",
+      "ellipseregion",
+      "keypointregion",
+      "polygonregion",
+      "rectangleregion",
+    ].includes(region.type),
   );
 
   // Khi đổi ảnh/slice, bỏ các ID đã chọn nhưng không còn tồn tại trong danh sách region hiện tại.
@@ -107,13 +116,19 @@ const ObjectTab = observer(({ currentEntity, item }) => {
   const selectLabel = ({ control: sourceControl, value }) => {
     // Bỏ chọn region cũ và chỉ bật nhãn trên control sẽ tạo region để OpenCV không gắn nhãn trùng.
     item.annotation.unselectAreas();
-    activateObjectLabel(objectControls, sourceControl, value);
-
-    // Giữ công cụ hiện tại nếu thuộc đúng control; nếu không thì chọn công cụ mặc định của control nguồn.
     const manager = item.getToolsManager();
     const selectedTool = manager.findSelectedTool();
+    const selectedControl = selectedTool?.control;
+    const targetControl =
+      objectControls.includes(selectedControl) && findChildByResultValue(selectedControl, value)
+        ? selectedControl
+        : sourceControl;
+
+    activateObjectLabel(objectControls, targetControl, value);
+
+    // Giữ loại hình đang chọn (kể cả Ring control riêng); nếu không thì dùng công cụ mặc định của control nguồn.
     const tool =
-      selectedTool?.control?.name === sourceControl.name ? selectedTool : Object.values(sourceControl.tools || {})[0];
+      selectedControl === targetControl ? selectedTool : Object.values(targetControl.tools || {})[0];
     if (tool) manager.selectTool(tool, true);
   };
 

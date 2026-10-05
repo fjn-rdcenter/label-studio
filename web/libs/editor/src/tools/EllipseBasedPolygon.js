@@ -10,7 +10,7 @@ import { FF_DEV_2432, isFF } from "../utils/feature-flags";
 const _Tool = types
   .model("EllipseBasedPolygonTool", {
     group: "segmentation",
-    shortcut: "P",
+    shortcut: "O",
   })
   .views((self) => {
     const Super = {
@@ -41,6 +41,9 @@ const _Tool = types
       },
       get iconComponent() {
         return self.dynamic ? NodeViews.EllipseBasedPolygonRegionModel.altIcon : NodeViews.EllipseBasedPolygonRegionModel.icon;
+      },
+      get shouldRenderView() {
+        return true;
       },
 
       get defaultDimensions() {
