@@ -816,7 +816,11 @@ const HtxPolygonView = ({ item, setShapeRef }) => {
   }, [item.bboxCoords.left, item.bboxCoords.top]);
 
   useEffect(() => {
-    if (isFF(FF_DEV_2432) && !item.closed) item.control.tools.Polygon.resumeUnfinishedRegion(item);
+    if (isFF(FF_DEV_2432) && !item.closed) {
+      const toolName = item.ring ? "RingPolygon" : "Polygon";
+
+      item.control.tools[toolName]?.resumeUnfinishedRegion(item);
+    }
   }, [item.closed]);
 
   if (!item.parent) return null;
