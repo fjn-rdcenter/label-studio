@@ -31,7 +31,7 @@ const RingPolygonBase = types
         ring: true,
         outerclosed: false,
         closed: false,
-        dynamic: Boolean(self.isOpenCV),
+        dynamic: Boolean(self.isOpenCV && self.control.smartEnabled),
       };
     },
   }))
@@ -139,9 +139,9 @@ const OpenCVRingPolygonIdentity = types
   .volatile(() => ({
     isOpenCV: true,
   }))
-  .views(() => ({
+  .views((self) => ({
     get viewTooltip() {
-      return "OpenCV Detect Ring Polygon";
+      return self.control.smartEnabled ? "OpenCV Detect Ring Polygon" : "Ring Polygon (outer + inner)";
     },
     get iconComponent() {
       return IconRingPolygonToolSmart;

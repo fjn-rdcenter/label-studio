@@ -44,7 +44,7 @@ const _Tool = types
           points: [[x, y]],
           width: 10,
           closed: false,
-          dynamic: self.dynamic || self.isOpenCV,
+          dynamic: self.dynamic || (self.isOpenCV && self.control.smartEnabled),
         });
       },
 
@@ -191,7 +191,7 @@ const OpenCVPolygonIdentity = types
   }))
   .views((self) => ({
     get viewTooltip() {
-      return "OpenCV Detect Polygon";
+      return self.control.smartEnabled ? "OpenCV Detect Polygon" : "Polygon region";
     },
     get iconComponent() {
       return NodeViews.PolygonRegionModel.altIcon;

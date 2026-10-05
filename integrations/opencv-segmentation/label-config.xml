@@ -15,7 +15,7 @@
     <Label value="Membrane" background="#EC4899"/>
   </RectangleLabels>
 
-  <PolygonLabels name="polygon" toName="image" smart="true"
+  <PolygonLabels name="polygon" toName="image" smart="true" showManualTools="false"
                  fillOpacity="0.2" strokeWidth="2"
                  pointStyle="circle" pointSize="small">
     <Label value="Object" background="#22C55E"/>

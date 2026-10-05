@@ -58,7 +58,7 @@ config: |
       </View>
 
       <View style="display:none">
-        <PolygonLabels name="pl-{{idx}}" toName="timelapse_{{idx}}" polygonMode="polygon" smart="true"
+        <PolygonLabels name="pl-{{idx}}" toName="timelapse_{{idx}}" polygonMode="polygon" smart="true" showManualTools="false"
                         fillOpacity="0.2" strokeWidth="2"
                         pointStyle="circle" pointSize="small">
           <Label value="PN" background="#2563EB" hotkey="1"/>
@@ -79,7 +79,7 @@ config: |
       </View>
 
       <View style="display:none">
-        <PolygonLabels name="ring-{{idx}}" toName="timelapse_{{idx}}" polygonMode="ring" smart="true"
+        <PolygonLabels name="ring-{{idx}}" toName="timelapse_{{idx}}" polygonMode="ring" smart="true" showManualTools="false"
                        fillOpacity="0.2" strokeWidth="2"
                        pointStyle="circle" pointSize="small">
           <Label value="PN" background="#2563EB"/>
