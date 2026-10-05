@@ -55,6 +55,7 @@ const objectLabel = (region) => region.labels?.[0] || region.labelName || "Objec
 const objectShape = (region) =>
   ({
     brushregion: "Brush",
+    ellipsebasedpolygonregion: "Ellipse",
     ellipseregion: "Ellipse",
     keypointregion: "Keypoint",
     polygonregion: region.ring ? "Ring Polygon" : "Polygon",
@@ -63,6 +64,7 @@ const objectShape = (region) =>
 const objectShapeIcon = (region) =>
   ({
     brushregion: IconBrushTool,
+    ellipsebasedpolygonregion: IconCircleTool,
     ellipseregion: IconCircleTool,
     keypointregion: IconKeypointsTool,
     polygonregion: region.ring ? IconRingPolygonTool : IconPolygonTool,
@@ -96,7 +98,14 @@ const ObjectTab = observer(({ currentEntity, item }) => {
   const primaryLabels = labels.filter(({ label }) => !RARE_OBJECTS.has(childDisplayValue(label)));
   const extendedLabels = labels.filter(({ label }) => RARE_OBJECTS.has(childDisplayValue(label)));
   const regions = item.regs.filter((region) =>
-    ["brushregion", "ellipseregion", "keypointregion", "polygonregion", "rectangleregion"].includes(region.type),
+    [
+      "brushregion",
+      "ellipsebasedpolygonregion",
+      "ellipseregion",
+      "keypointregion",
+      "polygonregion",
+      "rectangleregion",
+    ].includes(region.type),
   );
 
   // Khi đổi ảnh/slice, bỏ các ID đã chọn nhưng không còn tồn tại trong danh sách region hiện tại.

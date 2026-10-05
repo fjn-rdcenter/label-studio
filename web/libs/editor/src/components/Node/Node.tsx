@@ -94,9 +94,9 @@ const NodeViews = {
   }),
 
   EllipseBasedPolygonRegionModel: NodeView({
-    name: "EllipseBasedPolygon",
-    icon: IconPolygonTool,
-    altIcon: IconPolygonToolSmart,
+    name: "Ellipse",
+    icon: IconCircleTool,
+    altIcon: IconCircleToolSmart,
   }),
 
   // @todo add coords

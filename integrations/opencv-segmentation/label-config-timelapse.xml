@@ -31,8 +31,8 @@
     </View>
 
     <View style="display:none">
-      <EllipseLabels name="ellipse-{{idx}}" toName="timelapse_{{idx}}" smart="false"
-                     fillOpacity="0.15" strokeWidth="2">
+      <EllipseBasedPolygonLabels name="ellipse-{{idx}}" toName="timelapse_{{idx}}" smart="false"
+                                 opacity="0.15" strokeWidth="2">
         <Label value="PN" background="#2563EB"/>
         <Label value="MicroPN" background="#16A34A"/>
         <Label value="Blastomere (Cell)" background="#38BDF8"/>
@@ -47,7 +47,7 @@
         <Label value="Vacuole" background="#EAB308"/>
         <Label value="PN Borderline" background="#22C55E" visible="false"/>
         <Label value="Membrane" background="#EC4899" visible="false"/>
-      </EllipseLabels>
+      </EllipseBasedPolygonLabels>
     </View>
 
     <View style="display:none">

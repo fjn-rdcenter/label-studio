@@ -22,11 +22,11 @@
     <Label value="Membrane" background="#EC4899"/>
   </PolygonLabels>
 
-  <EllipseLabels name="ellipse" toName="image" smart="false"
-                 fillOpacity="0.15" strokeWidth="2">
+  <EllipseBasedPolygonLabels name="ellipse" toName="image" smart="false"
+                             opacity="0.15" strokeWidth="2">
     <Label value="Object" background="#F59E0B"/>
     <Label value="Membrane" background="#EC4899"/>
-  </EllipseLabels>
+  </EllipseBasedPolygonLabels>
 
   <KeyPointLabels name="prompt" toName="image" smart="false">
     <Label value="Object" background="#7C3AED"/>
