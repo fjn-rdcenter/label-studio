@@ -591,8 +591,14 @@ def _least_cost_path(cost: np.ndarray, start: tuple[int, int], end: tuple[int, i
         return [start, end]
     path.reverse()
     return path
- 
- 
+
+
+def _simplify_contour(contour: np.ndarray) -> np.ndarray:
+    perimeter = cv2.arcLength(contour, True)
+    epsilon = max(1.5, perimeter * 0.003)
+    return cv2.approxPolyDP(contour, epsilon, True).reshape(-1, 2)
+
+
 def trace_polygon(image: np.ndarray, anchors: list[tuple[int, int]]) -> list[tuple[int, int]]:
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -609,8 +615,7 @@ def trace_polygon(image: np.ndarray, anchors: list[tuple[int, int]]) -> list[tup
         path.extend(segment[:-1])
  
     contour = np.asarray(path, dtype=np.int32).reshape(-1, 1, 2)
-    perimeter = cv2.arcLength(contour, True)
-    simplified = cv2.approxPolyDP(contour, max(0.75, perimeter * 0.001), True).reshape(-1, 2)
+    simplified = _simplify_contour(contour)
     points = [(int(x), int(y)) for x, y in simplified]
     return points if len(points) >= 3 else anchors
 
@@ -655,8 +660,7 @@ def order_ring_contours(
         if np.count_nonzero(repaired_component) / original_inner_area < 0.7:
             return None
 
-        perimeter = cv2.arcLength(repaired, True)
-        simplified = cv2.approxPolyDP(repaired, max(0.75, perimeter * 0.001), True).reshape(-1, 2)
+        simplified = _simplify_contour(repaired)
         if len(simplified) < 3:
             return None
         inner_points = [(int(x), int(y)) for x, y in simplified]
