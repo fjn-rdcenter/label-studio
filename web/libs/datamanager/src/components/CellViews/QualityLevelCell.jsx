@@ -6,8 +6,8 @@ import { Button } from "../Common/Button/Button";
 const LEVELS = {
   0: { label: "Not labeled", color: "#6b7280" },
   1: { label: "Annotator", color: "#2563eb" },
-  2: { label: "Reviewed", color: "#d97706" },
-  3: { label: "Confirmed", color: "#15803d" },
+  2: { label: "Confirmed", color: "#d97706" },
+  3: { label: "Reviewed", color: "#15803d" },
 };
 
 export const QualityLevelCell = observer(({ value, original }) => {
@@ -47,7 +47,7 @@ export const QualityLevelCell = observer(({ value, original }) => {
         quality_level_change_ids: [...annotationIDs],
       });
       sdk.invoke("toast", {
-        message: nextLevel === 3 ? "Task confirmed" : "Task returned to Reviewed",
+        message: nextLevel === 3 ? "Task done" : "Task returned to back",
         type: "info",
       });
     } catch (_error) {
@@ -74,7 +74,7 @@ export const QualityLevelCell = observer(({ value, original }) => {
           style={{ flexShrink: 0, whiteSpace: "nowrap" }}
           type="button"
         >
-          {changing ? "Updating..." : level === 2 ? "Confirm" : "Return to Reviewed"}
+          {changing ? "Updating..." : level === 2 ? "Done" : "Return to back"}
         </Button>
       ) : null}
     </div>
