@@ -8,6 +8,7 @@ import os
 import posixpath
 import sys
 from pathlib import Path
+from urllib.parse import urlencode
 from wsgiref.util import FileWrapper
  
 import pandas as pd
@@ -43,6 +44,14 @@ logger = logging.getLogger(__name__)
 _PARAGRAPH_SAMPLE = None
 
 
+def _login_redirect(request):
+    login_url = reverse('user-login')
+    next_page = request.GET.get('next')
+    if next_page:
+        login_url = f'{login_url}?{urlencode({"next": next_page})}'
+    return redirect(login_url)
+
+
 def main(request):
     user = request.user
 
@@ -50,13 +59,13 @@ def main(request):
 
         if user.active_organization is None and 'organization_pk' not in request.session:
             logout(request)
-            return redirect(reverse('user-login'))
+            return _login_redirect(request)
 
         # business mode access
         return redirect(reverse('projects:project-index'))
 
     # not authenticated
-    return redirect(reverse('user-login'))
+    return _login_redirect(request)
 
 
 def version_page(request):

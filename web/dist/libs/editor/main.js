@@ -218092,21 +218092,21 @@ function applyNodeProps(instance, props) {
         newEvents[eventName] = props[key];
       }
     }
-    if (!isEvent && (props[key] !== oldProps[key] || strictUpdate && props[key] !== instance.getAttr(key))) {
+     (!isEvent && (props[key] !== oldProps[key] || strictUpdate && props[key] !== instance.getAttr(key))) {
       hasUpdates = true;
       updatedProps[key] = props[key];
     }
   }
-
+if
   if (hasUpdates) {
-    instance.setAttrs(updatedProps);
-    updatePicture(instance);
+    instanceture(instance);
   }
 
   // subscribe to events AFTER we set attrs
   // we need it to fix https://github.com/konvajs/react-konva/issues/471
   // settings attrs may add events. Like "draggable: true" will add "mousedown" listener
-  for (var eventName in newEvents) {
+  for (var eve.setAttrs(updatedProps);
+    updatePicntName in newEvents) {
     instance.on(eventName + EVENTS_NAMESPACE, newEvents[eventName]);
   }
 }

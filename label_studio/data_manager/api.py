@@ -110,6 +110,22 @@ class DataManagerProjectRolePermission(BasePermission):
         return bool(project and project.has_role(request.user, ProjectMember.Role.MANAGER))
 
 
+class DataManagerViewPermission(DataManagerProjectRolePermission):
+    """Project members can configure task views without permission to modify tasks."""
+
+    def has_permission(self, request, view):
+        if not getattr(request.user, 'is_authenticated', False):
+            return False
+        if getattr(view, 'action', None) in {'create', 'update', 'partial_update', 'update_order'}:
+            return self.is_member_or_admin(self.get_project(request, view), request.user)
+        return super().has_permission(request, view)
+
+    def has_object_permission(self, request, view, obj):
+        if getattr(view, 'action', None) in {'update', 'partial_update'}:
+            return self.is_member_or_admin(obj.project, request.user)
+        return super().has_object_permission(request, view, obj)
+
+
 @method_decorator(
     name='list',
     decorator=swagger_auto_schema(
@@ -200,7 +216,7 @@ class ViewAPI(viewsets.ModelViewSet):
     serializer_class = ViewSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['project']
-    permission_classes = (DataManagerProjectRolePermission,)
+    permission_classes = (DataManagerViewPermission,)
     permission_required = ViewClassPermission(
         GET=all_permissions.tasks_view,
         POST=all_permissions.tasks_change,

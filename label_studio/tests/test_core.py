@@ -103,6 +103,24 @@ def test_main(mocker, command_line, result):
     assert output == result
 
 
+def test_main_preserves_next_when_redirecting_to_login():
+    from urllib.parse import parse_qs, urlparse
+
+    from django.contrib.auth.models import AnonymousUser
+    from django.test import RequestFactory
+
+    from core.views import main
+
+    request = RequestFactory().get('/', {'next': '/projects/7/data?tab=labels'})
+    request.user = AnonymousUser()
+
+    response = main(request)
+    redirect_url = urlparse(response['Location'])
+
+    assert redirect_url.path == '/user/login/'
+    assert parse_qs(redirect_url.query) == {'next': ['/projects/7/data?tab=labels']}
+
+
 def test_string_is_url():
     from label_studio.core.utils.common import string_is_url
 

@@ -239,6 +239,55 @@ def test_labelers_can_save_and_delete_filters_but_cannot_delete_view(business_cl
     assert response.status_code == 403, response.content
 
 
+@pytest.mark.parametrize('role', [ProjectMember.Role.ANNOTATOR, ProjectMember.Role.REVIEWER])
+def test_labelers_can_configure_task_views(business_client, configured_project, role):
+    project = configured_project
+    labeler = User.objects.create_user(email=f'views-{role.lower()}@example.com', password='test-password')
+    business_client.organization.add_user(labeler)
+    project.add_collaborator(labeler, role=role)
+    client = APIClient()
+    client.force_authenticate(user=labeler)
+
+    response = client.post(
+        '/api/dm/views/',
+        data={'project': project.id, 'data': {'title': 'My tasks'}},
+        format='json',
+    )
+    assert response.status_code == 201, response.content
+    view_id = response.json()['id']
+    view_url = f'/api/dm/views/{view_id}/'
+    data = {
+        'title': 'Filtered tasks',
+        'hiddenColumns': ['tasks:completed_at'],
+        'columnsWidth': {'tasks:id': 180},
+        'filters': {
+            'conjunction': 'and',
+            'items': [{'filter': 'filter:tasks:id', 'operator': 'greater', 'type': 'Number', 'value': 1}],
+        },
+        'ordering': ['-id'],
+    }
+    response = client.patch(view_url, data={'data': data}, format='json')
+    assert response.status_code == 200, response.content
+    response = client.get(view_url)
+    assert response.status_code == 200, response.content
+    for key, value in data.items():
+        assert response.json()['data'][key] == value
+
+    response = client.post('/api/dm/views/order/', data={'project': project.id, 'ids': [view_id]}, format='json')
+    assert response.status_code == 200, response.content
+
+    # Configuring views does not grant task writes or access to other projects.
+    response = client.post('/api/dm/tasks/', data={'project': project.id, 'data': {}}, format='json')
+    assert response.status_code == 403, response.content
+    other_project = Project.objects.create(organization=business_client.organization, created_by=business_client.user)
+    response = client.post('/api/dm/views/', data={'project': other_project.id}, format='json')
+    assert response.status_code == 403, response.content
+    response = client.patch(view_url, data={'project': other_project.id}, format='json')
+    assert response.status_code == 403, response.content
+    response = client.delete(view_url)
+    assert response.status_code == 403, response.content
+
+
 def test_views_ordered_by_id(business_client, project_id):
     views = [{'view_data': 1}, {'view_data': 2}, {'view_data': 3}]
 
