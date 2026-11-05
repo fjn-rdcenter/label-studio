@@ -3,12 +3,14 @@
 from django.urls import include, path
 
 from . import api
+from .annotation_update import AnnotationUpdateAPI
 
 app_name = 'data_import'
 
 _api_urlpatterns = [path('file-upload/<int:pk>', api.FileUploadAPI.as_view(), name='file-upload-detail')]
 
 _api_projects_urlpatterns = [
+    path('<int:pk>/import/results', AnnotationUpdateAPI.as_view(), name='project-import-results'),
     # import api
     path('<int:pk>/tasks/bulk/', api.TasksBulkCreateAPI.as_view(), name='project-tasks-bulk-upload'),
     path('<int:pk>/import', api.ImportAPI.as_view(), name='project-import'),

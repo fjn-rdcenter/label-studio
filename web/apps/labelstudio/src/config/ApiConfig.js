@@ -15,6 +15,7 @@ export const API_CONFIG = {
     // Project
     projects: "/projects",
     project: "/projects/:pk",
+    importProjectResults: "POST:/projects/:pk/import/results",
     updateProject: "PATCH:/projects/:pk",
     createProject: "POST:/projects",
     deleteProject: "DELETE:/projects/:pk",

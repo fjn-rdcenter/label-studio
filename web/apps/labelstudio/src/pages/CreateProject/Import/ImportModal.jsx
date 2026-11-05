@@ -8,6 +8,7 @@ import { ProjectProvider, useProject } from "../../../providers/ProjectProvider"
 import { useFixedLocation } from "../../../providers/RoutesProvider";
 import { Elem } from "../../../utils/bem";
 import { useRefresh } from "../../../utils/hooks";
+import { ImportResults } from "../../DataManager/ImportResults";
 import { ImportPage } from "./Import";
 import { useImportPage } from "./useImportPage";
 
@@ -18,6 +19,8 @@ export const Inner = () => {
   const refresh = useRefresh();
   const { project } = useProject();
   const [waiting, setWaitingStatus] = useState(false);
+  const [importMode, setImportMode] = useState("tasks");
+  const [resultsBusy, setResultsBusy] = useState(false);
   const api = useAPI();
 
   const { uploading, uploadDisabled, finishUpload, fileIds, pageProps } = useImportPage(project);
@@ -58,25 +61,57 @@ export const Inner = () => {
       ref={modal}
       onHide={() => backToDM()}
       closeOnClickOutside={false}
+      allowClose={!waiting && !uploading && !resultsBusy}
       fullscreen
       visible
       bare
     >
       <Modal.Header divided>
         <Elem block="modal" name="title">
-          Import Data
+          Import
         </Elem>
 
         <Space>
-          <Button waiting={waiting} onClick={onCancel}>
+          <Button
+            waiting={waiting}
+            disabled={uploading || resultsBusy}
+            onClick={importMode === "tasks" ? onCancel : backToDM}
+          >
             Cancel
           </Button>
-          <Button look="primary" onClick={onFinish} waiting={waiting || uploading} disabled={uploadDisabled}>
-            Import
-          </Button>
+          {importMode === "tasks" && (
+            <Button look="primary" onClick={onFinish} waiting={waiting || uploading} disabled={uploadDisabled}>
+              Import
+            </Button>
+          )}
         </Space>
       </Modal.Header>
-      <ImportPage project={project} {...pageProps} />
+      {project.can_import_results && (
+        <div style={{ padding: "16px 24px" }}>
+          <Space>
+            <Button
+              look={importMode === "tasks" ? "primary" : undefined}
+              disabled={waiting || uploading || resultsBusy}
+              onClick={() => setImportMode("tasks")}
+            >
+              New tasks
+            </Button>
+            <Button
+              look={importMode === "results" ? "primary" : undefined}
+              disabled={waiting || uploading || resultsBusy || fileIds.length > 0}
+              onClick={() => setImportMode("results")}
+            >
+              Update task
+            </Button>
+          </Space>
+          {fileIds.length > 0 && <p>Finish or cancel the current task import before updating existing tasks.</p>}
+        </div>
+      )}
+      {importMode === "tasks" ? (
+        <ImportPage project={project} {...pageProps} />
+      ) : (
+        <ImportResults project={project} onBusyChange={setResultsBusy} onClose={backToDM} />
+      )}
     </Modal>
   );
 };
