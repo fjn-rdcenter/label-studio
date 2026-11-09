@@ -1,0 +1,18 @@
+# GPU variant of the TASDF online-learning backend (needs NVIDIA Container Toolkit):
+#   docker compose -f docker-compose.yml -f docker-compose.tasdf.yml -f docker-compose.tasdf-gpu.yml up -d --build
+services:
+  tasdf-online:
+    build:
+      args:
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu128
+    environment:
+      DEVICE: cuda
+      EPISODE_EPOCHS: ${TASDF_EPISODE_EPOCHS:-3}
+      HOLDOUT_LIMIT: ${TASDF_HOLDOUT_LIMIT:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

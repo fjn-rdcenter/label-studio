@@ -1,0 +1,8 @@
+# torch is installed separately (CPU or CUDA wheel), see Dockerfile ARG TORCH_INDEX_URL
+Flask==3.0.3
+gunicorn==22.0.0
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
+Pillow==10.4.0
+requests==2.32.3
+defusedxml==0.7.1

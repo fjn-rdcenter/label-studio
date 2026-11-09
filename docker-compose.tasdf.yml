@@ -1,0 +1,30 @@
+# TASDF online-learning ML backend (CPU). Overlay on docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.tasdf.yml up -d --build
+# GPU: add -f docker-compose.tasdf-gpu.yml
+# Put secrets (LS_TOKEN of a project Manager, LS_PROJECT_ID, OL_TOKEN) in .data/tasdf-online/tasdf.env
+services:
+  tasdf-online:
+    build:
+      context: ./integrations/tasdf-online-learning
+      args:
+        TORCH_INDEX_URL: ${TASDF_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+    restart: unless-stopped
+    depends_on:
+      - webapp
+    env_file:
+      - path: ./.data/tasdf-online/tasdf.env
+        required: false
+    environment:
+      DEVICE: ${TASDF_DEVICE:-cpu}
+      TORCH_THREADS: ${TASDF_TORCH_THREADS:-4}
+      LS_URL: http://webapp:8080
+      STATE_DIR: /data/tasdf-online/state
+      BASELINE_CKPT: /data/tasdf-online/baseline.pt
+      HOLDOUT_NPZ: /data/tasdf-online/holdout.npz
+      # CPU-friendly defaults; raise on GPU
+      EPISODE_EPOCHS: ${TASDF_EPISODE_EPOCHS:-1}
+      HOLDOUT_LIMIT: ${TASDF_HOLDOUT_LIMIT:-8}
+    expose:
+      - "9090"
+    volumes:
+      - .data/tasdf-online:/data/tasdf-online

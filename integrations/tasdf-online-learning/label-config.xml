@@ -1,0 +1,14 @@
+<View>
+  <Header value="TASDF online learning — blastocyst segmentation"/>
+  <Text name="instructions" value="ZP and TE: draw as ring (outer + inner contour). ICM and BC: plain polygons. Correct the model suggestion, then Submit."/>
+
+  <Image name="image" value="$image" zoom="true" zoomControl="true"/>
+
+  <PolygonLabels name="seg" toName="image" polygonMode="both"
+                 fillOpacity="0.3" strokeWidth="2" pointStyle="circle" pointSize="small">
+    <Label value="ZP" background="#3B82F6" hotkey="1"/>
+    <Label value="TE" background="#22C55E" hotkey="2"/>
+    <Label value="ICM" background="#EF4444" hotkey="3"/>
+    <Label value="BC" background="#F59E0B" hotkey="4"/>
+  </PolygonLabels>
+</View>
