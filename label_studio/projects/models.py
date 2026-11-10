@@ -301,7 +301,7 @@ class Project(ProjectMixin, models.Model):
 
     @property
     def ml_backend(self):
-        return fast_first(self.ml_backends.all())
+        return fast_first(self.ml_backends.filter(is_interactive=False)) or fast_first(self.ml_backends.all())
 
     @property
     def should_retrieve_predictions(self):

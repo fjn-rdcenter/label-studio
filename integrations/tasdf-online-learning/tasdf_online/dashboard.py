@@ -112,7 +112,10 @@ table{width:100%;border-collapse:collapse} th,td{padding:4px 6px;border-bottom:1
   <div class="card"><h2>3. Version Lineage & Holdout mDice (v0 → vt)</h2><table id="vers"></table></div>
 </div>
 <script>
-const tokEl=document.getElementById('tok'); tokEl.value=sessionStorage.getItem('ol_tok')||'';
+const tokEl=document.getElementById('tok');
+const urlTok=new URLSearchParams(window.location.search).get('token');
+if(urlTok){sessionStorage.setItem('ol_tok',urlTok);}
+tokEl.value=sessionStorage.getItem('ol_tok')||urlTok||'';
 let capOn=true;
 function hdr(){return {'X-OL-Token':tokEl.value,'Content-Type':'application/json'};}
 function saveTok(){sessionStorage.setItem('ol_tok',tokEl.value);poll();}
@@ -148,7 +151,9 @@ async function poll(){
   let vr='<tr><th>Ver</th><th>Status</th><th>mDice</th><th>ZP</th><th>TE</th><th>ICM</th><th>BC</th></tr>';
   for(const [k,info] of Object.entries(d.version_history||{})){
     const m=info.metrics||{}, dc=m.dice||{};
-    vr+=`<tr><td>${k}</td><td>${info.status}</td><td>${(m.pooled_mDice||0).toFixed(4)}</td>`+
+    const stBadge=info.status==='rejected'?`<span class="pill bad">rejected</span>`:(info.status==='accepted'?`<span class="pill ok">accepted</span>`:`<span class="pill">${info.status}</span>`);
+    const gr=(info.gate_reasons||[]).join(', ');
+    vr+=`<tr><td>${k}</td><td>${stBadge}${gr?`<br><small style="color:#f87171">(${gr})</small>`:''}</td><td>${(m.pooled_mDice||0).toFixed(4)}</td>`+
         `<td>${(dc[1]||0).toFixed(3)}</td><td>${(dc[2]||0).toFixed(3)}</td><td>${(dc[3]||0).toFixed(3)}</td><td>${(dc[4]||0).toFixed(3)}</td></tr>`;
   }
   document.getElementById('vers').innerHTML=vr;

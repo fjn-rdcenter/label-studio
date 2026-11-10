@@ -12,10 +12,6 @@ ENV BUILD_NO_SERVER=true \
 
 WORKDIR /label-studio/web
 
-COPY fujinet-ca-bundle.pem /usr/local/share/ca.pem
-ENV NODE_EXTRA_CA_CERTS=/usr/local/share/ca.pem
-RUN yarn config set cafile /usr/local/share/ca.pem
-
 # Fix Docker Arm64 Build
 RUN yarn config set registry https://registry.npmjs.org/
 RUN yarn config set network-timeout 1200000 # HTTP timeout used when downloading packages, set to 20 minutes
@@ -47,12 +43,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     SETUPTOOLS_USE_DISTUTILS=stdlib
 
 WORKDIR $LS_DIR
-
-COPY fujinet-ca-bundle.pem /usr/local/share/ca.pem
-ENV SSL_CERT_FILE=/usr/local/share/ca.pem \
-    REQUESTS_CA_BUNDLE=/usr/local/share/ca.pem \
-    PIP_CERT=/usr/local/share/ca.pem \
-    CURL_CA_BUNDLE=/usr/local/share/ca.pem
 
 # install packages
 # RUN set -eux \

@@ -365,14 +365,14 @@ class MLBackend(models.Model):
             instances = prediction_ser.save()
         return instances
 
-    def predict_single_task(self, task, update_project_version=False):
+    def predict_single_task(self, task, update_project_version=False, force=False):
         self.update_state()
         if self.not_ready:
             return {'errors': [f'ML backend {self.title} is not ready ({self.get_state_display()})']}
-        # idempotent per model version: Auto-Annotation asks again every time the task is opened
+        # idempotent per model version unless explicitly forced by Smart Prediction
         instance = (
             task.predictions.filter(model_version=self.model_version).order_by('-id').first()
-            if self.model_version
+            if (self.model_version and not force)
             else None
         )
         with conditional_atomic(predicate=db_is_not_sqlite):

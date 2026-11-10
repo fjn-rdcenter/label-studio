@@ -22,4 +22,3 @@ label_studio/frontend
 !LICENSE
 !pyproject.toml
 !poetry.lock
-!fujinet-ca-bundle.pem

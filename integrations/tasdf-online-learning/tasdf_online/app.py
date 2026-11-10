@@ -190,7 +190,7 @@ class OnlineService:
                 ann, task = self.pending.pop(ann_id)
             self.telemetry["status"] = f"training annotation {ann_id}"
             try:
-                if self.s.ls_url:  # offline tests (no LS) train on the payload as-is
+                if self.s.ls_url and self.s.ls_token:  # offline tests (no LS) train on the payload as-is
                     ann, task = self._from_ls(ann_id)
                     reason = self._skip_reason(ann, ann.get("project"))
                     if reason:
@@ -317,8 +317,14 @@ class OnlineService:
         precompute_n = max(1, self.s.refresh_next_n)
         name, stats = self.model_version, {"created": 0, "errors": 0}
         try:
-            tasks = list(self._project_tasks())
-            unlabeled = [t for t in tasks if not any(not a.get("was_cancelled") for a in t.get("annotations", []))]
+            unlabeled, has_ver = [], False
+            for t in self._project_tasks():
+                if any(p.get("model_version") == name for p in t.get("predictions", [])):
+                    has_ver = True
+                if not any(not a.get("was_cancelled") for a in t.get("annotations", [])):
+                    unlabeled.append(t)
+                    if len(unlabeled) >= precompute_n:
+                        break
             for t in sorted(unlabeled, key=lambda t: t["id"])[:precompute_n]:
                 if any(p.get("model_version") == name for p in t.get("predictions", [])):
                     continue
@@ -328,10 +334,7 @@ class OnlineService:
                 except Exception:
                     log.exception("prediction for task %s failed", t["id"])
                     stats["errors"] += 1
-            has_ver = stats["created"] > 0 or any(
-                p.get("model_version") == name for t in tasks for p in t.get("predictions", [])
-            )
-            if has_ver:
+            if stats["created"] > 0 or has_ver:
                 self._ls("PATCH", f"/api/projects/{self.s.ls_project_id}", json={"model_version": name})
         except requests.RequestException as exc:
             log.warning("Label Studio sync failed: %s", exc)

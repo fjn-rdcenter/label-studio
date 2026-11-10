@@ -29,6 +29,8 @@ services:
       - fflag_feat_front_dev_3873_labeling_ui_improvements_short=1
     ports:
       - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # - .:/label-studio    # for dev 
       - .data/label_studio_data:/label-studio/data # App data
