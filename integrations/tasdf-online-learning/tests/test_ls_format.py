@@ -3,7 +3,7 @@ import pytest
 from conftest import blastocyst_mask
 
 from tasdf_online.learner import mean_dice
-from tasdf_online.ls_format import BC, ICM, TE, ZP, ls_media_url, mask_to_results, results_to_mask
+from tasdf_online.ls_format import BC, ICM, TE, ZP, bio_valid, ls_media_url, mask_to_results, results_to_mask
 
 
 def test_round_trip_keeps_rings_and_classes():
@@ -58,3 +58,30 @@ def test_media_url_only_label_studio():
         ls_media_url("http://webapp:8080", "http://evil.example/data/x.png")
     with pytest.raises(ValueError):
         ls_media_url("http://webapp:8080", "/api/projects/")
+
+
+def test_bio_valid_rejects_empty_and_saturated():
+    assert bio_valid(blastocyst_mask())
+    assert not bio_valid(np.zeros((256, 256), np.uint8))
+    assert not bio_valid(np.full((256, 256), ZP, np.uint8))
+
+
+def test_fetch_image_data_uri_and_multi_tool_mask():
+    import base64
+    import cv2
+    from tasdf_online.ls_format import fetch_image
+
+    raw = np.full((64, 80), 120, dtype=np.uint8)
+    ok, buf = cv2.imencode(".png", raw)
+    assert ok
+    uri = "data:image/png;base64," + base64.b64encode(buf.tobytes()).decode("ascii")
+    img, w, h = fetch_image("", "", uri)
+    assert img.shape == (256, 256) and (w, h) == (80, 64)
+
+    results = [
+        {"type": "rectanglelabels", "from_name": "rectangle", "value": {"x": 10, "y": 10, "width": 20, "height": 20, "rectanglelabels": ["ZP"]}},
+        {"type": "ellipsebasedpolygonlabels", "from_name": "ellipse", "value": {"points": [[50, 50], [70, 50], [70, 70], [50, 70]], "ellipsebasedpolygonlabels": ["ICM"]}},
+    ]
+    m = results_to_mask(results, "polygon")
+    assert m[40, 40] == ZP and m[150, 150] == ICM
+

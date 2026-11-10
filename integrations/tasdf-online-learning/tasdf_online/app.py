@@ -24,7 +24,8 @@ from flask import Flask, jsonify, request
 
 from . import __version__, learner
 from .config import Settings, resolve_device
-from .ls_format import fetch_image, mask_to_results, results_to_mask
+from .dashboard import create_dashboard_blueprint, render_visuals
+from .ls_format import bio_valid, fetch_image, mask_to_results, results_to_mask
 from .registry import Registry
 
 log = logging.getLogger("tasdf_online")
@@ -79,6 +80,8 @@ class OnlineService:
         self.queue: queue.Queue = queue.Queue()
         self.pending: dict = {}
         self.seen: dict = {}
+        self.last_predicted_mask: dict[int, np.ndarray] = {}
+        self.dashboard_enabled: bool = s.dashboard_enabled
         self.telemetry: dict = {"status": "idle", "episodes": [], "next_task_dice": []}
         if self.holdout is not None and "metrics" not in self.registry.info("v0"):
             self.registry.record("v0", metrics=learner.evaluate(self._load("v0"), *self.holdout))
@@ -104,6 +107,8 @@ class OnlineService:
             version = self.model_version
         conf, mask = probs[0].max(0)
         mask = mask.numpy().astype(np.uint8)
+        if task.get("id") is not None:
+            self.last_predicted_mask[int(task["id"])] = mask.copy()
         fg = mask > 0
         score = float(conf[torch.from_numpy(fg)].mean()) if fg.any() else 0.0
         result = mask_to_results(mask, w, h, self.label[0], self.label[1])
@@ -120,7 +125,10 @@ class OnlineService:
             return "ignored-empty"
         if int(ann.get("quality_level") or 1) < self.s.min_quality_level:
             return "ignored-quality"
-        digest = hashlib.sha1(json.dumps(ann["result"], sort_keys=True).encode()).hexdigest()
+        if not bio_valid(results_to_mask(ann["result"], self.label[0])):
+            return "ignored-invalid-mask"
+        geom = [{k: v for k, v in r.items() if k != "id"} for r in ann["result"] if isinstance(r, dict)]
+        digest = hashlib.sha1(json.dumps(geom, sort_keys=True).encode()).hexdigest()
         if self.seen.get(ann.get("id")) == digest:
             return "ignored-unchanged"
         with self.qlock:
@@ -147,19 +155,24 @@ class OnlineService:
                 if self.device.type == "cuda":
                     torch.cuda.empty_cache()
 
-    def _initial_prediction(self, ann: dict):
+    def _initial_prediction(self, ann: dict, task_id: int | None = None):
         pid = ann.get("parent_prediction")
-        if not pid or not self.s.ls_url:
-            return None
-        resp = requests.get(f"{self.s.ls_url}/api/predictions/{pid}", headers=self._auth(), timeout=self.s.request_timeout)
-        resp.raise_for_status()
-        return results_to_mask(resp.json().get("result") or [], self.label[0])
+        if pid and self.s.ls_url:
+            try:
+                resp = requests.get(f"{self.s.ls_url}/api/predictions/{pid}", headers=self._auth(), timeout=self.s.request_timeout)
+                resp.raise_for_status()
+                return results_to_mask(resp.json().get("result") or [], self.label[0])
+            except requests.RequestException as exc:
+                log.warning("could not fetch parent_prediction %s: %s", pid, exc)
+        if task_id is not None and int(task_id) in self.last_predicted_mask:
+            return self.last_predicted_mask[int(task_id)]
+        return None
 
     def _episode(self, ann: dict, task: dict):
         t0 = time.time()
         img, _, _ = self._image(task)
         y = results_to_mask(ann["result"], self.label[0])
-        p_init = self._initial_prediction(ann)  # what the annotator actually saw, not today's model
+        p_init = self._initial_prediction(ann, task.get("id"))  # what the annotator actually saw, not today's model
         record = {"annotation_id": ann.get("id"), "task_id": task.get("id"), "at": t0}
         if p_init is not None:
             record["next_task_dice"] = learner.mean_dice(p_init, y)[0]
@@ -167,8 +180,9 @@ class OnlineService:
 
         teacher, parent = self.teacher, self.registry.active
         x = torch.from_numpy(img)[None, None]
-        w_new = 1.0 + self.s.corr_beta * torch.from_numpy((p_init != y).astype(np.float32)) if p_init is not None \
-            else torch.ones(y.shape)
+        before, _ = learner.predict_probs(teacher, x)
+        ref_mask = p_init if p_init is not None else before[0].argmax(0).numpy()
+        w_new = 1.0 + self.s.corr_beta * torch.from_numpy((ref_mask != y).astype(np.float32))
         xs, ys, ws = [x], [torch.from_numpy(y.astype(np.int64))[None]], [w_new[None]]
         replay = random.sample(list(self.replay), min(self.s.replay_size, len(self.replay)))
         if self.anchors is not None and len(replay) < self.s.replay_size:
@@ -177,15 +191,16 @@ class OnlineService:
         for rx, ry in replay:
             xs.append(rx); ys.append(ry); ws.append(torch.ones(ry.shape))
 
-        before, _ = learner.predict_probs(teacher, x)
         cand, losses = learner.run_episode(
             teacher, torch.cat(xs), torch.cat(ys), torch.cat(ws), epochs=self.s.episode_epochs, lr=self.s.lr,
             ema_alpha=self.s.ema_alpha, topo_sup_weight=self.s.topo_sup_weight, erosion=self.s.erosion, amp=self.amp)
-        after, _ = learner.predict_probs(cand, x)
+        after, topo_after = learner.predict_probs(cand, x)
         shifts = learner.layer_shifts(teacher, cand, self.base_state)
         frozen_ok = shifts["encoder_frozen"]["l2_shift"] == 0.0 and shifts["decoder_frozen"]["l2_shift"] == 0.0
         record.update(losses=losses, local_probe=learner.local_probe(before[0], after[0], y), layer_shifts=shifts,
                       frozen_unchanged=frozen_ok)
+        if self.dashboard_enabled:
+            self.telemetry["last_visuals"] = render_visuals(img, ref_mask, before[0], after[0], topo_after[0], y)
 
         accepted, reasons = False, ["no holdout configured"]
         if self.holdout is not None and frozen_ok:
@@ -201,7 +216,8 @@ class OnlineService:
             version = self.registry.add(learner.trainable_state(cand), record, accepted)
             if accepted:
                 self.teacher = cand
-        self.replay.append((x, ys[0]))
+        if accepted:
+            self.replay.append((x, ys[0]))
         record["version"], record["accepted"] = version, accepted
         self.telemetry["episodes"] = (self.telemetry["episodes"] + [record])[-20:]
         log.info("episode %s accepted=%s reasons=%s (%.1fs)", version, accepted, reasons, time.time() - t0)
@@ -229,15 +245,18 @@ class OnlineService:
             page += 1
 
     def refresh_ls(self) -> dict:
-        """Point the project at the active version, drop stale predictions on unlabeled tasks only
-        (labeled tasks keep theirs: annotation.parent_prediction is SET_NULL on delete) and
-        precompute the next N. Needs a project-Manager token (Org Admin is read-only in this fork)."""
+        """Drop stale predictions on unlabeled tasks, precompute the next N for the active version,
+        then PATCH project.model_version (LS validate_model_version requires predictions with that
+        version to exist first). Needs a project-Manager token."""
         if not (self.s.ls_url and self.s.ls_token and self.s.ls_project_id):
             return {"skipped": "LS_URL/LS_TOKEN/LS_PROJECT_ID not set"}
+        if self.s.refresh_next_n <= 0:
+            self.telemetry["last_refresh"] = {"version": self.model_version, "skipped": "on-demand mode (REFRESH_NEXT_N=0)"}
+            return self.telemetry["last_refresh"]
         name, stats = self.model_version, {"deleted": 0, "created": 0, "errors": 0}
         try:
-            self._ls("PATCH", f"/api/projects/{self.s.ls_project_id}", json={"model_version": name})
-            unlabeled = [t for t in self._project_tasks() if not any(not a.get("was_cancelled") for a in t.get("annotations", []))]
+            tasks = list(self._project_tasks())
+            unlabeled = [t for t in tasks if not any(not a.get("was_cancelled") for a in t.get("annotations", []))]
             for t in unlabeled:
                 for p in t.get("predictions", []):
                     if p.get("model_version") != name:
@@ -252,6 +271,11 @@ class OnlineService:
                 except Exception:
                     log.exception("prediction for task %s failed", t["id"])
                     stats["errors"] += 1
+            has_ver = stats["created"] > 0 or any(
+                p.get("model_version") == name for t in tasks for p in t.get("predictions", [])
+            )
+            if has_ver:
+                self._ls("PATCH", f"/api/projects/{self.s.ls_project_id}", json={"model_version": name})
         except requests.RequestException as exc:
             log.warning("Label Studio sync failed: %s", exc)
             stats["failed"] = str(exc)
@@ -269,13 +293,14 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
     svc = service
     if svc is None:
         svc = OnlineService(settings)
-        # make LS show this service's active version from the start (needs LS reachable)
-        threading.Thread(target=svc.refresh_ls, daemon=True).start()
+        if settings.refresh_next_n > 0:
+            threading.Thread(target=svc.refresh_ls, daemon=True).start()
     app = Flask(__name__)
     app.config["svc"] = svc
 
     def ops_allowed() -> bool:
-        return bool(settings.ol_token) and request.headers.get("X-OL-Token") == settings.ol_token
+        tok = request.headers.get("X-OL-Token") or request.args.get("token")
+        return bool(settings.ol_token) and tok == settings.ol_token
 
     @app.get("/health")
     def health():
@@ -319,7 +344,7 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
         versions = {v: {k: i.get(k) for k in ("status", "parent", "metrics", "gate_reasons", "next_task_dice", "created")}
                     for v, i in svc.registry.data["versions"].items()}
         return jsonify(active=svc.model_version, device=str(svc.device), queue=svc.queue.qsize(),
-                       version_history=versions, **svc.telemetry)
+                       dashboard_enabled=svc.dashboard_enabled, version_history=versions, **svc.telemetry)
 
     @app.post("/rollback")
     def rollback():
@@ -334,6 +359,8 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
         if not ops_allowed():
             return jsonify(error="unauthorized"), 401
         return jsonify(svc.refresh_ls())
+
+    app.register_blueprint(create_dashboard_blueprint(svc, ops_allowed))
 
     @app.errorhandler(ValueError)
     def bad_input(err):

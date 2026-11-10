@@ -56,8 +56,51 @@ def test_webhook_fast_filters_and_trains(client):
     (ep,) = tel["episodes"]
     assert ep["frozen_unchanged"] and "metrics" in ep and ep["version"] == "v1"
     assert ep["layer_shifts"]["pixel_head"]["l2_shift"] > 0
+    assert "input_overlay" in tel["last_visuals"] and tel["last_visuals"]["input_overlay"].startswith("data:image/png;base64,")
     # same result again is not retrained
     assert client.post("/webhook", json=_event()).get_json()["status"] == "ignored-unchanged"
+    # degenerate (empty or saturated >=95%) mask is rejected by bio_valid gate
+    sat = [{"type": "polygonlabels", "from_name": "seg", "value": {"points": [[0, 0], [100, 0], [100, 100], [0, 100]], "polygonlabels": ["ZP"]}}]
+    assert client.post("/webhook", json={**_event(ann_id=99), "annotation": {"id": 99, "result": sat, "quality_level": 2}}).get_json()["status"] == "ignored-invalid-mask"
+
+
+def test_dashboard_toggle_and_standalone(client):
+    assert client.get("/dashboard").status_code == 200
+    assert client.post("/dashboard/toggle", json={"enabled": False}).status_code == 401
+    assert client.post("/dashboard/toggle", json={"enabled": False}, headers=AUTH).get_json()["dashboard_enabled"] is False
+    assert client.get("/dashboard").status_code == 404
+    assert "last_visuals" not in client.get("/telemetry/live", headers=AUTH).get_json()
+    assert client.post("/dashboard/toggle", json={"enabled": True}, headers=AUTH).get_json()["dashboard_enabled"] is True
+    assert client.get("/dashboard").status_code == 200
+
+
+def test_refresh_ls_creates_predictions_before_patch(settings, monkeypatch):
+    img = np.zeros((256, 256), np.float32)
+    monkeypatch.setattr(app_module, "fetch_image", lambda *a, **k: (img, 256, 256))
+    s = dataclasses.replace(settings, ls_url="http://ls.test", ls_token="tok", ls_project_id=7, refresh_next_n=1)
+    svc = app_module.OnlineService(s)
+    calls = []
+
+    def fake_get(url, **kw):
+        class R:
+            status_code = 200 if kw.get("params", {}).get("page") == 1 else 404
+            def raise_for_status(self): pass
+            def json(self):
+                return [{"id": 10, "data": {"image": "/data/a.png"}, "annotations": [], "predictions": [{"id": 3, "model_version": "old"}]}] if self.status_code == 200 else []
+        return R()
+
+    def fake_req(method, url, **kw):
+        calls.append((method, url))
+        class R:
+            status_code = 200
+            def raise_for_status(self): pass
+        return R()
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+    monkeypatch.setattr(app_module.requests, "request", fake_req)
+    stats = svc.refresh_ls()
+    assert stats == {"deleted": 1, "created": 1, "errors": 0}
+    assert [m for m, _ in calls] == ["DELETE", "POST", "PATCH"]
 
 
 def test_rollback_requires_token(client):

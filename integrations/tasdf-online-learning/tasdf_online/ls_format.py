@@ -6,6 +6,7 @@ The fork supports exactly one hole per ring.
 """
 from __future__ import annotations
 
+import base64
 import io
 from urllib.parse import urlparse
 
@@ -16,7 +17,7 @@ from PIL import Image, UnidentifiedImageError
 
 BG, ZP, TE, ICM, BC = 0, 1, 2, 3, 4
 CLASS_NAMES = {ZP: "ZP", TE: "TE", ICM: "ICM", BC: "BC"}
-NAME_TO_CLASS = {v: k for k, v in CLASS_NAMES.items()}
+NAME_TO_CLASS = {**{v: k for k, v in CLASS_NAMES.items()}, "Blastocoel": BC}
 # painter order: inner anatomy overwrites outer shells
 PAINT_ORDER = (ZP, TE, BC, ICM)
 SIZE = 256
@@ -36,30 +37,93 @@ def _holes(value: dict) -> list:
     return [holes] if holes else []
 
 
+def _decode_rle_mask(rle: list[int], width: int, height: int, size: int = SIZE) -> np.ndarray:
+    if not rle or width <= 0 or height <= 0:
+        return np.zeros((size, size), np.uint8)
+    bits = "".join(f"{int(b) & 0xFF:08b}" for b in rle)
+    pos = [0]
+
+    def read(n: int) -> int:
+        val = int(bits[pos[0] : pos[0] + n] or "0", 2)
+        pos[0] += n
+        return val
+
+    num = read(32)
+    word_size = read(5) + 1
+    rle_sizes = [read(4) + 1 for _ in range(4)]
+    out = np.zeros(num, dtype=np.uint8)
+    i = 0
+    while i < num and pos[0] < len(bits):
+        x = read(1)
+        j = min(num, i + 1 + read(rle_sizes[read(2)]))
+        if x:
+            out[i:j] = read(word_size)
+            i = j
+        else:
+            while i < j:
+                out[i] = read(word_size)
+                i += 1
+    alpha = out.reshape(height, width, 4)[:, :, 3] if num == height * width * 4 else out.reshape(height, width)
+    if (height, width) != (size, size):
+        alpha = cv2.resize(alpha, (size, size), interpolation=cv2.INTER_NEAREST)
+    return (alpha > 0).astype(np.uint8)
+
+
 def results_to_mask(results: list[dict], from_name: str | None = None, size: int = SIZE) -> np.ndarray:
-    """Rasterise polygonlabels results into a uint8 class map of shape (size, size)."""
+    """Rasterise polygon/ring/ellipse/rectangle/brush results into a uint8 class map of shape (size, size)."""
     layers = {c: np.zeros((size, size), np.uint8) for c in PAINT_ORDER}
     for r in results or []:
-        if r.get("type") != "polygonlabels" or (from_name and r.get("from_name") != from_name):
+        rtype = r.get("type")
+        if from_name and rtype == "polygonlabels" and r.get("from_name") and r.get("from_name") != from_name:
             continue
         value = r.get("value") or {}
-        labels = value.get("polygonlabels") or []
+        labels = (
+            value.get("polygonlabels")
+            or value.get("brushlabels")
+            or value.get("ellipsebasedpolygonlabels")
+            or value.get("rectanglelabels")
+            or value.get("labels")
+            or []
+        )
         cls = NAME_TO_CLASS.get(labels[0]) if labels else None
-        points = value.get("points") or []
-        if cls is None or len(points) < 3:
+        if cls is None:
             continue
         shape = np.zeros((size, size), np.uint8)
-        cv2.fillPoly(shape, [_to_px(points, size, size)], 1)
-        for hole in _holes(value):
-            if len(hole) >= 3:
-                pts = _to_px(hole, size, size)
-                cv2.fillPoly(shape, [pts], 0)
-                cv2.polylines(shape, [pts], True, 1)  # the hole outline belongs to the ring (as the outer one does)
+        if rtype in {"polygonlabels", "ellipsebasedpolygonlabels"}:
+            points = value.get("points") or []
+            if len(points) < 3:
+                continue
+            cv2.fillPoly(shape, [_to_px(points, size, size)], 1)
+            for hole in _holes(value):
+                if len(hole) >= 3:
+                    pts = _to_px(hole, size, size)
+                    cv2.fillPoly(shape, [pts], 0)
+                    cv2.polylines(shape, [pts], True, 1)
+        elif rtype == "brushlabels" and value.get("rle"):
+            ow = int(r.get("original_width") or size)
+            oh = int(r.get("original_height") or size)
+            shape = _decode_rle_mask(value["rle"], ow, oh, size)
+        elif rtype == "rectanglelabels" and "x" in value and "y" in value:
+            x1 = int(round(float(value["x"]) * size / 100.0))
+            y1 = int(round(float(value["y"]) * size / 100.0))
+            x2 = int(round((float(value["x"]) + float(value.get("width", 0))) * size / 100.0))
+            y2 = int(round((float(value["y"]) + float(value.get("height", 0))) * size / 100.0))
+            cv2.rectangle(shape, (x1, y1), (x2, y2), 1, -1)
+        else:
+            continue
         layers[cls] |= shape
     mask = np.zeros((size, size), np.uint8)
     for cls in PAINT_ORDER:
         mask[layers[cls] > 0] = cls
     return mask
+
+
+def bio_valid(mask: np.ndarray) -> bool:
+    """Reject empty foreground masks or single-class foreground saturation (>=95% of image area)."""
+    fg = mask[mask > 0]
+    if fg.size == 0:
+        return False
+    return int(np.bincount(fg).max()) < int(0.95 * mask.size)
 
 
 def _simplify(contour: np.ndarray) -> np.ndarray:
@@ -94,6 +158,7 @@ def mask_to_results(mask: np.ndarray, orig_w: int, orig_h: int, from_name: str, 
                 if len(hole) >= 3:
                     value.update(ring=True, outerclosed=True, holes=[_to_perc(hole, size)])
             results.append({
+                "id": f"tasdf-{cls}-{i}",
                 "from_name": from_name, "to_name": to_name, "type": "polygonlabels",
                 "original_width": int(orig_w), "original_height": int(orig_h), "image_rotation": 0,
                 "value": value,
@@ -114,7 +179,14 @@ def ls_media_url(ls_url: str, source: str) -> str:
 
 
 def fetch_image(ls_url: str, token: str, source: str, timeout: float = 30) -> tuple[np.ndarray, int, int]:
-    """Download a task image from Label Studio -> (float32 [0,1] SIZE x SIZE gray, orig_w, orig_h)."""
+    """Download or decode a task image from Label Studio -> (float32 [0,1] SIZE x SIZE gray, orig_w, orig_h)."""
+    if source.startswith("data:image/") and "," in source:
+        try:
+            raw = base64.b64decode(source.split(",", 1)[1], validate=False)
+            gray = np.array(Image.open(io.BytesIO(raw)).convert("L"), dtype=np.uint8)
+        except Exception as exc:
+            raise ValueError("not a valid base64 image data URI") from exc
+        return preprocess(gray), gray.shape[1], gray.shape[0]
     resp = requests.get(ls_media_url(ls_url, source), headers={"Authorization": f"Token {token}"}, timeout=timeout)
     resp.raise_for_status()
     try:

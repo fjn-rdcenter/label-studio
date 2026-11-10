@@ -93,9 +93,11 @@ def episode_loss(model, loss_fn: MainLoss, x, y, w, topo_sup_weight: float) -> t
     """gamma * (W-weighted CE + Dice + topo-sup) + M2-B unlabeled term (CPS + topo consistency)."""
     (p1, t1), (p2, t2) = model(x, branch="both")
     sup = 0.0
+    valid_w = w * (y != IGNORE)
+    denom_w = valid_w.sum().clamp_min(1.0)
     for p in (p1, p2):
         ce = F.cross_entropy(p.float(), y, ignore_index=IGNORE, reduction="none")
-        sup = sup + (ce * w).sum() / w.sum() + _soft_dice_loss(p, y)
+        sup = sup + (ce * valid_w).sum() / denom_w + _soft_dice_loss(p, y)
     topo = torch.zeros((), device=x.device)
     if topo_sup_weight > 0:
         skel, valid = loss_fn._extract_target_skeleton(y, num_classes=NUM_CLASSES, target_channels=t1.shape[1])
