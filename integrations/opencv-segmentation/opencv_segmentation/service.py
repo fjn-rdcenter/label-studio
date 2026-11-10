@@ -1,3 +1,4 @@
+import base64
 import ipaddress
 import heapq
 import io
@@ -241,7 +242,39 @@ def fetch_image_replace(source: str, settings: Settings) -> np.ndarray:
 
     return image
 
+def _decode_image_bytes(content: bytes, settings: Settings, error_prefix: str = "Downloaded content") -> np.ndarray:
+    if len(content) > settings.max_image_bytes:
+        raise ImageFetchError("Image exceeds MAX_IMAGE_BYTES")
+    try:
+        with Image.open(io.BytesIO(content)) as image_header:
+            width, height = image_header.size
+    except (Image.DecompressionBombError, UnidentifiedImageError, OSError) as exc:
+        raise ImageFetchError(f"{error_prefix} is not a safe supported image") from exc
+    if height * width > settings.max_image_pixels:
+        raise ImageFetchError("Image header exceeds MAX_IMAGE_PIXELS")
+
+    image = cv2.imdecode(np.frombuffer(content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        raise ImageFetchError(f"{error_prefix} is not a supported image")
+    height, width = image.shape[:2]
+    if height * width > settings.max_image_pixels:
+        raise ImageFetchError("Decoded image exceeds MAX_IMAGE_PIXELS")
+    return image
+
+
 def fetch_image(source: str, settings: Settings) -> np.ndarray:
+    if source.startswith("data:image/") and "," in source:
+        try:
+            content = base64.b64decode(source.split(",", 1)[1], validate=False)
+        except Exception as exc:
+            raise ImageFetchError("Invalid base64 image data URI") from exc
+        return _decode_image_bytes(content, settings, "Data URI content")
+
+    if "d=" in urlparse(source).query:
+        local_path = normalize_scan_url(source)
+        if Path(local_path).is_file():
+            return fetch_image_replace(local_path, settings)
+
     url, is_label_studio_media = _resolve_image_url(source, settings)
  
     session = requests.Session()
@@ -292,21 +325,7 @@ def fetch_image(source: str, settings: Settings) -> np.ndarray:
         session.close()
  
     content = b"".join(chunks)
-    try:
-        with Image.open(io.BytesIO(content)) as image_header:
-            width, height = image_header.size
-    except (Image.DecompressionBombError, UnidentifiedImageError, OSError) as exc:
-        raise ImageFetchError("Downloaded content is not a safe supported image") from exc
-    if height * width > settings.max_image_pixels:
-        raise ImageFetchError("Image header exceeds MAX_IMAGE_PIXELS")
- 
-    image = cv2.imdecode(np.frombuffer(content, dtype=np.uint8), cv2.IMREAD_COLOR)
-    if image is None:
-        raise ImageFetchError("Downloaded content is not a supported image")
-    height, width = image.shape[:2]
-    if height * width > settings.max_image_pixels:
-        raise ImageFetchError("Decoded image exceeds MAX_IMAGE_PIXELS")
-    return image
+    return _decode_image_bytes(content, settings)
  
  
 def _context_results(context: Any) -> list[dict[str, Any]]:
@@ -771,10 +790,9 @@ def predict_task(task: dict[str, Any], spec: LabelSpec, context: Any, settings: 
         raise InputError("Task data must be an object")
     dynamic_index, item_index = _resolve_indices(spec, context)
     image_source, item_index = _resolve_image_source(data, spec, dynamic_index, item_index)
-    image_source = normalize_scan_url(image_source)
     from_name = _render_template(spec.from_name, dynamic_index)
     to_name = _render_template(spec.to_name, dynamic_index)
-    image = fetch_image_replace(image_source, settings)
+    image = fetch_image(image_source, settings)
     height, width = image.shape[:2]
     rectangle, positives, backgrounds, prompt_labels = parse_prompts(context, width, height, to_name, item_index)
     (

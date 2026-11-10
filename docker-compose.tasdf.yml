@@ -24,6 +24,7 @@ services:
       # CPU-friendly defaults; raise on GPU
       EPISODE_EPOCHS: ${TASDF_EPISODE_EPOCHS:-1}
       HOLDOUT_LIMIT: ${TASDF_HOLDOUT_LIMIT:-8}
+      DASHBOARD_ENABLED: ${TASDF_DASHBOARD:-1}
     expose:
       - "9090"
     volumes:

@@ -84,6 +84,10 @@ export const DataManagerPage = ({ ...props }) => {
     });
 
     const interactiveBacked = (mlBackends ?? []).find(({ is_interactive }) => is_interactive);
+    const predictionBackend =
+      (mlBackends ?? []).find((b) => !b.is_interactive && b.state === "CO") ||
+      (mlBackends ?? []).find((b) => !b.is_interactive) ||
+      interactiveBacked;
 
     const dataManager = (dataManagerRef.current =
       dataManagerRef.current ??
@@ -93,6 +97,8 @@ export const DataManagerPage = ({ ...props }) => {
         autoAnnotation: isDefined(interactiveBacked),
       })));
 
+    dataManager.mlBackends = mlBackends ?? [];
+    dataManager.predictionBackend = predictionBackend;
     Object.assign(window, { dataManager });
 
     dataManager.on("crash", () => setCrashed());
@@ -213,7 +219,98 @@ DataManagerPage.pages = {
 DataManagerPage.context = ({ dmRef }) => {
   const location = useFixedLocation();
   const { project } = useProject();
+  const api = useAPI();
+  const toast = useContext(ToastContext);
   const [mode, setMode] = useState(dmRef?.mode ?? "explorer");
+  const [predicting, setPredicting] = useState(false);
+
+  const getRegionLabel = (r) => {
+    const v = r?.value || {};
+    const arr =
+      v.polygonlabels ||
+      v.brushlabels ||
+      v.rectanglelabels ||
+      v.ellipsebasedpolygonlabels ||
+      v.keypointlabels ||
+      v.labels ||
+      [];
+    return arr[0] || null;
+  };
+
+  const isModelRegion = (r) =>
+    String(r?.id || "").startsWith("tasdf-") || r?.origin === "prediction" || r?.origin === "prediction-changed";
+
+  const runSmartPrediction = useCallback(async () => {
+    const lsfWrapper = dmRef?.lsf;
+    const task = lsfWrapper?.task;
+    if (!task?.id) {
+      toast?.show?.({ message: "Hãy mở một ảnh để chạy Smart Prediction", type: "error" });
+      return;
+    }
+    let backend = dmRef?.predictionBackend;
+    if (!backend && project?.id) {
+      const list = (await api.callApi("mlBackends", { params: { project: project.id } })) ?? [];
+      backend = list.find((b) => !b.is_interactive && b.state === "CO") || list.find((b) => !b.is_interactive) || list[0];
+      if (dmRef) dmRef.predictionBackend = backend;
+    }
+    if (!backend?.id) {
+      toast?.show?.({ message: "Chưa có ML Backend nào được kết nối cho dự án này", type: "error" });
+      return;
+    }
+    setPredicting(true);
+    try {
+      const response = await api.callApi("predictWithML", {
+        params: { pk: backend.id },
+        body: { task: task.id },
+      });
+      if (response?.errors?.length) {
+        toast?.show?.({ message: response.errors.join("; "), type: "error" });
+        return;
+      }
+      const pred = response?.data || response;
+      const predResults = pred?.result || [];
+      const store = lsfWrapper?.lsf;
+      let annotation = lsfWrapper?.currentAnnotation || store?.annotationStore?.selected;
+      if (store?.annotationStore && (!annotation || annotation.type === "prediction")) {
+        annotation = store.annotationStore.createAnnotation();
+        store.annotationStore.selectAnnotation(annotation.id);
+      }
+      if (annotation) {
+        const existing = annotation.serializeAnnotation() || [];
+        const manualRegions = existing.filter((r) => !isModelRegion(r));
+        const predLabels = new Set(predResults.map(getRegionLabel).filter(Boolean));
+        const manualOverlap = manualRegions.some((r) => predLabels.has(getRegionLabel(r)));
+        let keepOverlappingManual = false;
+        if (manualOverlap) {
+          keepOverlappingManual = window.confirm(
+            "Phát hiện vùng bạn đã vẽ trùng nhãn với dự đoán mô hình.\nNhấn OK để giữ nguyên vùng bạn đã vẽ và chỉ thêm nhãn còn thiếu, hoặc Cancel để cập nhật theo dự đoán mới của mô hình.",
+          );
+        }
+        let merged;
+        if (keepOverlappingManual) {
+          const manualLabels = new Set(manualRegions.map(getRegionLabel).filter(Boolean));
+          merged = [...manualRegions, ...predResults.filter((r) => !manualLabels.has(getRegionLabel(r)))];
+        } else {
+          merged = [...manualRegions.filter((r) => !predLabels.has(getRegionLabel(r))), ...predResults];
+        }
+        annotation.deserializeAnnotation(merged);
+        annotation.updateObjects?.();
+      }
+      toast?.show?.({
+        message: `Smart Prediction (${pred?.model_version || backend.title}): Đã nạp ${predResults.length} vùng đa giác cho ảnh #${task.id}`,
+        type: "info",
+      });
+    } finally {
+      setPredicting(false);
+    }
+  }, [dmRef, project, api, toast]);
+
+  useEffect(() => {
+    window.__runSmartPrediction = runSmartPrediction;
+    return () => {
+      delete window.__runSmartPrediction;
+    };
+  }, [runSmartPrediction]);
 
   const links = {
     "/settings": "Settings",
@@ -272,6 +369,25 @@ DataManagerPage.context = ({ dmRef }) => {
 
   return project && project.id ? (
     <Space size="small">
+      {mode !== "explorer" && (
+        <Button
+          size="compact"
+          look="primary"
+          disabled={predicting}
+          onClick={runSmartPrediction}
+          style={{ background: "#0284c7", borderColor: "#0369a1", color: "#fff", fontWeight: 600 }}
+        >
+          {predicting ? "Predicting..." : "Smart Prediction"}
+        </Button>
+      )}
+      <Button
+        size="compact"
+        onClick={() => {
+          window.open(`http://${window.location.hostname}:9090/dashboard?token=tasdf-secret-token`, "_blank", "noopener");
+        }}
+      >
+        ML Dashboard
+      </Button>
       {project.expert_instruction && mode !== "explorer" && (
         <Button
           size="compact"

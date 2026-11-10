@@ -114,7 +114,7 @@ class MLBackendSerializer(serializers.ModelSerializer):
 class MLBackendLabelerSerializer(serializers.ModelSerializer):
     class Meta:
         model = MLBackend
-        fields = ['id', 'is_interactive']
+        fields = ['id', 'is_interactive', 'title', 'state', 'model_version']
         read_only_fields = fields
 
 

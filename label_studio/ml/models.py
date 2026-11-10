@@ -365,6 +365,26 @@ class MLBackend(models.Model):
             instances = prediction_ser.save()
         return instances
 
+    def predict_single_task(self, task):
+        self.update_state()
+        if self.not_ready:
+            return {'errors': [f'ML backend {self.title} is not ready ({self.get_state_display()})']}
+        tasks_ser = TaskSimpleSerializer([task], many=True).data
+        predictions = self._get_predictions_from_ml_backend(tasks_ser)
+        if not predictions:
+            return {'errors': [f'No prediction returned from {self.title}']}
+        pred_data = predictions[0]
+        from tasks.models import Prediction
+        with conditional_atomic(predicate=db_is_not_sqlite):
+            Prediction.objects.filter(task=task, model_version=pred_data.get('model_version')).delete()
+            prediction_ser = PredictionSerializer(data=pred_data)
+            prediction_ser.is_valid(raise_exception=True)
+            instance = prediction_ser.save()
+            if instance.model_version and self.project.model_version != instance.model_version:
+                self.project.model_version = instance.model_version
+                self.project.save(update_fields=['model_version'])
+        return {'data': PredictionSerializer(instance).data}
+
     def interactive_annotating(self, task, context=None, user=None):
         result = {}
         options = {}

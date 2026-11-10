@@ -29,7 +29,10 @@ class HasObjectPermission(BasePermission):
         if request.method in SAFE_METHODS:
             return is_org_admin or is_manager or is_labeler
 
-        if is_org_admin:
+        if getattr(request.user, 'is_superuser', False):
+            return True
+
+        if is_org_admin and not (is_manager or is_labeler):
             return False
 
         model_name = getattr(getattr(obj, '_meta', None), 'model_name', '')

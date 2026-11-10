@@ -451,3 +451,15 @@ def test_membrane_label_enables_ring_and_context_false_overrides(app):
     payload["params"]["context"]["ring"] = False
     overridden = app.test_client().post("/predict", json=payload)
     assert _decoded_mask(overridden)[60, 80] > 0
+
+
+def test_fetch_image_supports_data_uri(synthetic_image, settings):
+    import base64
+    from opencv_segmentation.service import fetch_image
+
+    ok, buf = cv2.imencode(".png", synthetic_image)
+    assert ok
+    uri = "data:image/png;base64," + base64.b64encode(buf.tobytes()).decode("ascii")
+    decoded = fetch_image(uri, settings)
+    assert decoded.shape == synthetic_image.shape
+
