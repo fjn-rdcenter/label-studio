@@ -162,6 +162,8 @@ class Organization(OrganizationMixin, models.Model):
         return membership.role if membership else None
 
     def has_role(self, user, min_role=OrganizationMember.Role.MEMBER):
+        if getattr(user, 'is_superuser', False) and self.has_permission(user):
+            return True
         role = self.get_role(user)
         hierarchy = {
             OrganizationMember.Role.MEMBER: 1,

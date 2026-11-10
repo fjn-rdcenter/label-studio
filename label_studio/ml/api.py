@@ -101,7 +101,7 @@ class MLBackendListAPI(generics.ListCreateAPIView):
         if self.request.method == 'GET':
             project_id = self.request.query_params.get('project')
             project = Project.objects.filter(pk=project_id).first()
-            if project and project.has_role(self.request.user, ProjectMember.Role.ANNOTATOR):
+            if project and not MLBackendProjectPermission._can_read_configuration(project, self.request.user):
                 return MLBackendLabelerSerializer
         return super().get_serializer_class()
 
@@ -294,12 +294,19 @@ class MLBackendTrainAPI(APIView):
 )
 class MLBackendPredictTestAPI(APIView):
     serializer_class = MLBackendSerializer
-    permission_classes = (IsAuthenticated, MLBackendProjectPermission)
-    permission_required = all_permissions.projects_change
+    permission_classes = (IsAuthenticated, MLBackendInteractivePermission)
+    permission_required = all_permissions.tasks_view
 
     def post(self, request, *args, **kwargs):
         ml_backend = generics.get_object_or_404(MLBackend, pk=self.kwargs['pk'])
         self.check_object_permissions(self.request, ml_backend)
+
+        task_id = request.data.get('task') if isinstance(request.data, dict) else None
+        task_id = task_id or request.query_params.get('task')
+        if task_id:
+            task = generics.get_object_or_404(Task, pk=task_id, project=ml_backend.project)
+            result = ml_backend.predict_single_task(task)
+            return Response(result, status=status.HTTP_200_OK)
 
         random = request.query_params.get('random', False)
         if random:
@@ -313,7 +320,7 @@ class MLBackendPredictTestAPI(APIView):
         else:
             return Response(
                 status=status.HTTP_501_NOT_IMPLEMENTED,
-                data={'error': 'Not implemented - you must provide random=true query parameter'},
+                data={'error': 'Not implemented - you must provide random=true or task=<id>'},
             )
 
 

@@ -33,6 +33,8 @@ class AnnotationWorkflowPermission(BasePermission):
             )
 
         role = project.get_role(request.user)
+        if getattr(request.user, 'is_superuser', False) and role == ProjectMember.Role.ADMIN:
+            return True
         if role in {ProjectMember.Role.MANAGER, ProjectMember.Role.ADMIN}:
             return (
                 request.method == 'PATCH'

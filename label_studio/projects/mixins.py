@@ -80,6 +80,8 @@ class ProjectMixin:
 
         if getattr(self, 'organization', None) is None or not self.organization.has_permission(user):
             return None
+        if getattr(user, 'is_superuser', False):
+            return 'AD'
         if self.organization.has_role(user, 'AD'):
             return None
 
@@ -95,8 +97,8 @@ class ProjectMixin:
             return None
 
         capabilities = {
-            'AN': {'AN', 'RE'},
-            'RE': {'RE'},
+            'AN': {'AN', 'RE', 'AD'},
+            'RE': {'RE', 'AD'},
             'MA': {'MA', 'AD'},
         }
         if min_role in capabilities:

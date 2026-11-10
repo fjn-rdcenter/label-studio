@@ -30,6 +30,8 @@ class OrganizationProjectCreatePermission(BasePermission):
         if request.method != 'POST':
             return True
         organization = getattr(request.user, 'active_organization', None)
+        if getattr(request.user, 'is_superuser', False) and organization and organization.has_permission(request.user):
+            return True
         return bool(
             organization
             and organization.get_role(request.user) == OrganizationMember.Role.MANAGER
