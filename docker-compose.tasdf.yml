@@ -21,11 +21,11 @@ services:
       STATE_DIR: /data/tasdf-online/state
       BASELINE_CKPT: /data/tasdf-online/baseline.pt
       HOLDOUT_NPZ: /data/tasdf-online/holdout.npz
-      ANCHOR_NPZ: /data/tasdf-online/anchors.npz
       # CPU-friendly defaults; raise on GPU
       EPISODE_EPOCHS: ${TASDF_EPISODE_EPOCHS:-1}
       HOLDOUT_LIMIT: ${TASDF_HOLDOUT_LIMIT:-8}
       DASHBOARD_ENABLED: ${TASDF_DASHBOARD:-1}
+    # published for the ML Dashboard button; /setup /predict /webhook have no auth: trusted network only
     ports:
       - "9090:9090"
     expose:

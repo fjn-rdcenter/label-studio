@@ -86,8 +86,7 @@ export const DataManagerPage = ({ ...props }) => {
     const interactiveBacked = (mlBackends ?? []).find(({ is_interactive }) => is_interactive);
     const predictionBackend =
       (mlBackends ?? []).find((b) => !b.is_interactive && b.state === "CO") ||
-      (mlBackends ?? []).find((b) => !b.is_interactive) ||
-      (mlBackends ?? [])[0];
+      (mlBackends ?? []).find((b) => !b.is_interactive);
 
     const dataManager = (dataManagerRef.current =
       dataManagerRef.current ??
@@ -249,11 +248,11 @@ DataManagerPage.context = ({ dmRef }) => {
     let backend = dmRef?.predictionBackend;
     if (!backend && project?.id) {
       const list = (await api.callApi("mlBackends", { params: { project: project.id } })) ?? [];
-      backend = list.find((b) => !b.is_interactive && b.state === "CO") || list.find((b) => !b.is_interactive) || list[0];
+      backend = list.find((b) => !b.is_interactive && b.state === "CO") || list.find((b) => !b.is_interactive);
       if (dmRef) dmRef.predictionBackend = backend;
     }
     if (!backend?.id) {
-      toast?.show?.({ message: "Chưa có ML Backend nào được kết nối cho dự án này", type: "error" });
+      toast?.show?.({ message: "Chưa có ML Backend dự đoán cả ảnh (non-interactive) cho dự án này", type: "error" });
       return;
     }
     setPredicting(true);
@@ -386,9 +385,8 @@ DataManagerPage.context = ({ dmRef }) => {
       <Button
         size="compact"
         onClick={() => {
-          const backend = dmRef?.predictionBackend;
-          const token = backend?.extra_params?.token || "tasdf-secret-token";
-          window.open(`http://${window.location.hostname}:9090/dashboard?token=${token}`, "_blank", "noopener");
+          // dev tool: no token in the URL or bundle (set OL_TOKEN on the backend to require one)
+          window.open(`http://${window.location.hostname}:9090/dashboard`, "_blank", "noopener");
         }}
       >
         ML Dashboard

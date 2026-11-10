@@ -179,6 +179,8 @@ class OnlineService:
     def _from_ls(self, ann_id: int) -> tuple[dict, dict]:
         """The webhook is only a notification: re-read annotation and task from LS so a forged
         payload cannot inject labels, a quality level or another image."""
+        if not self.s.ls_token:  # fail closed: never fall back to training on the unauthenticated payload
+            raise RuntimeError("LS_TOKEN is not set: cannot verify the webhook against Label Studio")
         ann = self._ls("GET", f"/api/annotations/{ann_id}").json()
         task = self._ls("GET", f"/api/tasks/{int(ann['task'])}").json()
         return ann, task
@@ -190,7 +192,7 @@ class OnlineService:
                 ann, task = self.pending.pop(ann_id)
             self.telemetry["status"] = f"training annotation {ann_id}"
             try:
-                if self.s.ls_url and self.s.ls_token:  # offline tests (no LS) train on the payload as-is
+                if self.s.ls_url:  # offline tests (no LS) train on the payload as-is
                     ann, task = self._from_ls(ann_id)
                     reason = self._skip_reason(ann, ann.get("project"))
                     if reason:
@@ -359,8 +361,8 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
     app.config["svc"] = svc
 
     def ops_allowed() -> bool:
-        # header only: a ?token= query would end up in the gunicorn access log
-        return bool(settings.ol_token) and request.headers.get("X-OL-Token") == settings.ol_token
+        # empty OL_TOKEN = open dev tool; header only: a ?token= query would end up in the gunicorn access log
+        return not settings.ol_token or request.headers.get("X-OL-Token") == settings.ol_token
 
     @app.get("/health")
     def health():

@@ -202,3 +202,21 @@ def test_predict_on_cuda(settings, monkeypatch):
     client = app_module.create_app(s, app_module.OnlineService(s)).test_client()
     assert client.get("/health").get_json()["device"].startswith("cuda")
     assert client.post("/predict", json={"tasks": [{"id": 1, "data": {"image": "/data/x.png"}}]}).status_code == 200
+
+
+def test_ops_open_without_ol_token(settings):
+    s = dataclasses.replace(settings, ol_token="")
+    c = app_module.create_app(s, app_module.OnlineService(s)).test_client()
+    assert c.get("/telemetry/live").status_code == 200
+
+
+def test_webhook_not_trusted_without_ls_token(settings, monkeypatch):
+    s = dataclasses.replace(settings, ls_url="http://ls.test", ls_token="")
+    svc = app_module.OnlineService(s)
+    monkeypatch.setattr(app_module.requests, "request", lambda *a, **k: pytest.fail("must not call LS without a token"))
+    assert svc.enqueue(_event(quality=3)) == "queued"
+    deadline = time.time() + 30
+    while time.time() < deadline and "last_error" not in svc.telemetry:
+        time.sleep(0.1)
+    assert "LS_TOKEN" in svc.telemetry["last_error"]
+    assert svc.telemetry["episodes"] == []

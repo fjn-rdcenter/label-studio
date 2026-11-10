@@ -26,13 +26,13 @@ LS lưu annotation ──/webhook (tự tạo khi thêm backend)──> queue (t
 | `BASELINE_CKPT` | — | `best.pt` của M2-B (checkpoint đầy đủ hoặc state_dict). Bỏ trống thì dùng model ngẫu nhiên, chỉ để test |
 | `BASE_CHANNELS` / `EROSION` | 64 / `cross` | Phải khớp với checkpoint |
 | `HOLDOUT_NPZ` / `HOLDOUT_LIMIT` | — / 0 | Tập dùng cho cổng chống quên. 0 = dùng toàn bộ. Thiếu holdout thì mọi candidate đều bị từ chối |
-| `ANCHOR_NPZ` | — | Mẫu neo cho replay khi chưa có đủ mẫu đã duyệt |
+| `ANCHOR_NPZ` | — | Mẫu neo cho replay khi chưa có đủ mẫu đã duyệt. Compose không đặt sẵn: file phải tồn tại (service dừng nếu không đọc được), nên chỉ đặt trong `.data/tasdf-online/tasdf.env` sau khi đã export `anchors.npz` |
 | `EPISODE_EPOCHS` / `REPLAY_SIZE` / `LR` / `EMA_ALPHA` / `CORR_BETA` / `TOPO_SUP_WEIGHT` | 3 / 4 / 1e-4 / 0.65 / 0.5 / 0.1 | Tham số của một episode |
 | `STATE_DIR` | `/data/tasdf-online` | Nơi lưu `registry.json` và `versions/vN.pt` cho từng project |
 | `LS_URL`, `LS_TOKEN`, `LS_PROJECT_ID` | — | `LS_TOKEN` phải là token của user có role **Manager trong project**. Org Admin chỉ có quyền đọc trong fork này |
 | `MIN_QUALITY_LEVEL` | 2 | Chỉ học từ annotation đã được Reviewer/Manager duyệt. Đặt 1 khi demo |
-| `OL_TOKEN` | — | Chỉ nhận qua header `X-OL-Token` (không nhận `?token=` để tránh lộ trong access log), dùng cho `/telemetry/live`, `/rollback`, `/refresh_ls_predictions`, `/dashboard/toggle`. Trên `/dashboard` nhập token vào ô Token. Bỏ trống thì các endpoint này bị khoá |
-| `DASHBOARD_ENABLED` | `1` | Bật/tắt công cụ debug & theo dõi `/dashboard` (hoặc bật/tắt lúc đang chạy qua `POST /dashboard/toggle`). Có thể chạy tách rời hoàn toàn bằng `BACKEND_URL=http://localhost:9090 DASHBOARD_PORT=9091 python -m tasdf_online.dashboard`. Nút **ML Dashboard** trong Data Manager mở `http://<host>:9090/dashboard`: compose chỉ `expose` 9090, muốn mở từ trình duyệt phải thêm `ports: ["9090:9090"]` cho service `tasdf-online`. Không dùng chuỗi `tasdf-secret-token` làm `OL_TOKEN` (chuỗi này từng được build vào `web/dist`) |
+| `OL_TOKEN` | — | Bỏ trống (mặc định): `/dashboard` là công cụ dev, `/telemetry/live`, `/rollback`, `/refresh_ls_predictions`, `/dashboard/toggle` **mở không cần xác thực** — ai vào được cổng 9090 cũng rollback/refresh được. Đặt giá trị để bật xác thực khi triển khai thật: chỉ nhận qua header `X-OL-Token` (không nhận `?token=`), trên `/dashboard` nhập vào ô Token. Không dùng chuỗi `tasdf-secret-token` (từng được build vào `web/dist`) |
+| `DASHBOARD_ENABLED` | `1` | Bật/tắt công cụ debug & theo dõi `/dashboard` (hoặc bật/tắt lúc đang chạy qua `POST /dashboard/toggle`). Có thể chạy tách rời hoàn toàn bằng `BACKEND_URL=http://localhost:9090 DASHBOARD_PORT=9091 python -m tasdf_online.dashboard`. Nút **ML Dashboard** trong Data Manager mở `http://<host>:9090/dashboard` (compose đã publish `9090:9090`) |
 | `REFRESH_NEXT_N` | 0 | Số task chưa gán nhãn được predict sẵn sau mỗi lần promote (và lúc khởi động). Mỗi lần đồng bộ PATCH `project.model_version`; prediction cũ **không bị xoá** (annotation đang mở có thể trỏ tới nó qua `parent_prediction`), LS chỉ hiển thị prediction đúng version và tự predict lại task chưa có version hiện hành khi mở (`label_studio/tasks/api.py`). `0` = on-demand: chỉ predict sẵn 1 task (LS yêu cầu có ≥1 prediction của version mới mới cho đổi `model_version`); các task khác tự predict khi mở từ Data Manager. Luồng Label Stream (`/next/`) chỉ có gợi ý cho task đã được predict sẵn |
 
 Tạo file holdout và anchor từ repo nghiên cứu (định dạng folder `images/` + `masks/`):
@@ -67,11 +67,11 @@ DEVICE=cuda BASELINE_CKPT=... HOLDOUT_NPZ=... LS_URL=... LS_TOKEN=... LS_PROJECT
 2. Tạo một user dịch vụ, cho vào org với role Member và gán **Manager** trong project (Settings → Members). Lấy token của user này làm `LS_TOKEN`.
 3. Vào Settings → Model, thêm URL của backend (ví dụ `http://tasdf-online:9090`). **Không** bật "Interactive preannotations". LS sẽ tự tạo webhook tới `/webhook`.
 4. Khi khởi động, backend tự PATCH `project.model_version = tasdf-<active>`, nhờ đó LS hiển thị đúng prediction của version đang chạy.
-5. Trong màn hình gán nhãn, bật **Auto-Annotation** (thanh dưới của editor): mỗi lần mở task chưa có prediction của version hiện hành, app xin prediction cả ảnh và hiện dưới dạng *suggestions* (✓/✗ để nhận/bỏ). Bật thêm **Auto-Accept Suggestions** để nhận thẳng vào annotation. Thay cho nút Smart Prediction cũ; gọi lại cùng task trả về prediction đã có (không tạo bản trùng).
+5. Trong màn hình gán nhãn, bấm **Smart Prediction** (thanh trên): gọi model cho task đang mở (`force`, luôn tạo prediction mới) và nạp kết quả vào annotation hiện tại; nếu đã có vùng tự vẽ cùng nhãn, hộp xác nhận hỏi giữ vùng tự vẽ (OK) hay thay bằng dự đoán (Cancel — xoá vùng tự vẽ cùng nhãn). Chỉ dùng backend non-interactive.
 
 **An toàn:**
 - Webhook chỉ là tín hiệu: worker đọc lại annotation (`/api/annotations/<id>`) và task (`/api/tasks/<id>`) từ LS bằng `LS_TOKEN`; `result`, `quality_level`, ảnh trong payload không được tin. Payload thiếu `project` bị bỏ qua.
-- `/setup`, `/predict`, `/webhook` không có xác thực (giao thức ML backend của LS). Chỉ mở port 9090 trong mạng nội bộ / docker network; nếu phải lộ ra ngoài, đặt reverse proxy có Basic Auth và chọn `Basic Auth` khi thêm backend trong LS.
+- `/setup`, `/predict`, `/webhook` không có xác thực (giao thức ML backend của LS) và compose publish cổng 9090 ra mọi interface: chỉ chạy trong mạng nội bộ tin cậy; nếu phải lộ ra ngoài, đặt reverse proxy có Basic Auth và chọn `Basic Auth` khi thêm backend trong LS. `LS_TOKEN` là bắt buộc: thiếu nó worker từ chối train (không tin payload webhook).
 - `registry.json` ghi fingerprint (sha256 baseline, sha256 holdout, `HOLDOUT_LIMIT`): đổi holdout → tự đo lại metrics của v0 và version active; đổi `BASELINE_CKPT` với `STATE_DIR` cũ → dừng khi khởi động.
 
 ## Test
