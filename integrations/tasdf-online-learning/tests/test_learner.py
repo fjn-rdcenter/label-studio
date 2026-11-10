@@ -56,6 +56,15 @@ def test_gate_thresholds():
     assert not ok and any("vs v0" in r for r in reasons)
 
 
+def test_gate_per_class_after_registry_round_trip():
+    # registry.json turns int class keys into "1".."4"; the per-class checks must still fire after a restart
+    import json
+
+    prev = json.loads(json.dumps(_m(0.80, [0.8, 0.8, 0.8, 0.8])))
+    ok, reasons = learner.gate(_m(0.80, [0.8, 0.74, 0.8, 0.86]), prev, prev)
+    assert not ok and any("class 2 drop vs prev" in r for r in reasons)
+
+
 def test_local_probe_absorption():
     y = blastocyst_mask()
     before = torch.zeros(5, 256, 256); before[0] = 1

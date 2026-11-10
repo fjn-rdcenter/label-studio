@@ -42,6 +42,21 @@ class Registry:
     def info(self, version: str) -> dict:
         return self.data["versions"][version]
 
+    def sync_fingerprint(self, fp: dict) -> bool:
+        """Remember which baseline/holdout the versions and metrics were built from.
+        Refuse a different baseline (deltas would be applied to the wrong weights); return True if the holdout changed."""
+        old = self.data.get("fingerprint")
+        if old and old.get("baseline") != fp["baseline"]:
+            raise RuntimeError(
+                f"BASELINE_CKPT changed ({old['baseline'][:12]} -> {fp['baseline'][:12]}): versions in {self.root} "
+                "were trained on the old baseline. Restore it or use a new STATE_DIR."
+            )
+        changed = old != fp
+        if changed:
+            self.data["fingerprint"] = fp
+            self._save()
+        return changed
+
     def record(self, version: str, **fields) -> None:
         self.data["versions"].setdefault(version, {}).update(fields)
         self._save()

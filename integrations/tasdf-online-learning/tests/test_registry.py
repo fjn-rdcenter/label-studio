@@ -31,6 +31,17 @@ def test_versions_survive_restart_and_rollback(tmp_path):
     assert all(torch.equal(v, base[k]) for k, v in model.state_dict().items())
 
 
+def test_fingerprint_detects_holdout_change_and_refuses_new_baseline(tmp_path):
+    import pytest
+
+    fp = {"baseline": "aaa", "holdout": "h86", "holdout_limit": 0}
+    assert Registry(str(tmp_path), 1).sync_fingerprint(fp) is True  # first run
+    assert Registry(str(tmp_path), 1).sync_fingerprint(fp) is False  # restart, same setup
+    assert Registry(str(tmp_path), 1).sync_fingerprint({**fp, "holdout_limit": 8}) is True  # CPU<->GPU switch
+    with pytest.raises(RuntimeError, match="BASELINE_CKPT changed"):
+        Registry(str(tmp_path), 1).sync_fingerprint({**fp, "baseline": "bbb"})
+
+
 def test_delta_is_small_at_full_size(tmp_path):
     model = learner.build_model(base_channels=64)
     path = tmp_path / "delta.pt"

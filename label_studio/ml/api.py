@@ -15,6 +15,7 @@ from ml.permissions import MLBackendInteractivePermission, MLBackendProjectPermi
 from ml.serializers import MLBackendLabelerSerializer, MLBackendSerializer, MLInteractiveAnnotatingRequest
 from projects.models import Project, ProjectMember, Task
 from rest_framework import generics, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -300,16 +301,20 @@ class MLBackendPredictTestAPI(APIView):
     def post(self, request, *args, **kwargs):
         ml_backend = generics.get_object_or_404(MLBackend, pk=self.kwargs['pk'])
         self.check_object_permissions(self.request, ml_backend)
+        # labelers may predict a task (Smart Prediction) but not change project settings or see the debug request
+        can_manage = MLBackendProjectPermission._can_read_configuration(ml_backend.project, request.user)
 
         task_id = request.data.get('task') if isinstance(request.data, dict) else None
         task_id = task_id or request.query_params.get('task')
         if task_id:
             task = generics.get_object_or_404(Task, pk=task_id, project=ml_backend.project)
-            result = ml_backend.predict_single_task(task)
+            result = ml_backend.predict_single_task(task, update_project_version=can_manage)
             return Response(result, status=status.HTTP_200_OK)
 
         random = request.query_params.get('random', False)
         if random:
+            if not can_manage:  # _predict echoes the request, including project task-data credentials
+                raise PermissionDenied()
             task = Task.get_random(project=ml_backend.project)
             if not task:
                 raise Http404

@@ -22,6 +22,8 @@ NAME_TO_CLASS = {**{v: k for k, v in CLASS_NAMES.items()}, "Blastocoel": BC}
 PAINT_ORDER = (ZP, TE, BC, ICM)
 SIZE = 256
 MIN_AREA_PX = 12  # at SIZE resolution; smaller components are noise
+MAX_IMAGE_BYTES = 20 * 1024 * 1024
+MAX_IMAGE_PIXELS = 40_000_000
 
 
 def _to_px(points, w: int, h: int) -> np.ndarray:
@@ -178,22 +180,32 @@ def ls_media_url(ls_url: str, source: str) -> str:
     return ls_url + source
 
 
+def _decode_gray(raw: bytes, what: str) -> np.ndarray:
+    # same limits as the OpenCV backend (MAX_IMAGE_BYTES / MAX_IMAGE_PIXELS): /predict is reachable without auth
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise ValueError(f"{what} exceeds {MAX_IMAGE_BYTES} bytes")
+    try:
+        with Image.open(io.BytesIO(raw)) as im:
+            if im.width * im.height > MAX_IMAGE_PIXELS:
+                raise ValueError(f"{what} exceeds {MAX_IMAGE_PIXELS} pixels")
+            # PIL "L" conversion, as in tasdf BaseEmbryoDataset.load_raw_grayscale
+            return np.array(im.convert("L"), dtype=np.uint8)
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        raise ValueError(f"{what} is not a supported image") from exc
+
+
 def fetch_image(ls_url: str, token: str, source: str, timeout: float = 30) -> tuple[np.ndarray, int, int]:
     """Download or decode a task image from Label Studio -> (float32 [0,1] SIZE x SIZE gray, orig_w, orig_h)."""
     if source.startswith("data:image/") and "," in source:
         try:
             raw = base64.b64decode(source.split(",", 1)[1], validate=False)
-            gray = np.array(Image.open(io.BytesIO(raw)).convert("L"), dtype=np.uint8)
         except Exception as exc:
             raise ValueError("not a valid base64 image data URI") from exc
-        return preprocess(gray), gray.shape[1], gray.shape[0]
-    resp = requests.get(ls_media_url(ls_url, source), headers={"Authorization": f"Token {token}"}, timeout=timeout)
-    resp.raise_for_status()
-    try:
-        # PIL "L" conversion, as in tasdf BaseEmbryoDataset.load_raw_grayscale
-        gray = np.array(Image.open(io.BytesIO(resp.content)).convert("L"), dtype=np.uint8)
-    except UnidentifiedImageError as exc:
-        raise ValueError(f"not an image: {source}") from exc
+        gray = _decode_gray(raw, "data URI image")
+    else:
+        resp = requests.get(ls_media_url(ls_url, source), headers={"Authorization": f"Token {token}"}, timeout=timeout)
+        resp.raise_for_status()
+        gray = _decode_gray(resp.content, source)
     return preprocess(gray), gray.shape[1], gray.shape[0]
 
 

@@ -297,10 +297,12 @@ class TaskAPI(generics.RetrieveUpdateDestroyAPIView):
         context = self.get_retrieve_serializer_context(request)
         context['project'] = project = self.task.project
 
-        # get prediction
-        if (
-            project.evaluate_predictions_automatically or project.show_collab_predictions
-        ) and not self.task.predictions.exists():
+        # get prediction, also when the task only has predictions of an older model version: an
+        # online-learning backend must not delete those (one may be an open annotation's parent_prediction)
+        current = self.task.predictions
+        if project.model_version:
+            current = current.filter(model_version=project.model_version)
+        if (project.evaluate_predictions_automatically or project.show_collab_predictions) and not current.exists():
             evaluate_predictions([self.task])
             self.task.refresh_from_db()
 

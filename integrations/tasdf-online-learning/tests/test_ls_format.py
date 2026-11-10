@@ -100,3 +100,18 @@ def test_fetch_image_data_uri_and_multi_tool_mask():
     m = results_to_mask(results, "polygon")
     assert m[40, 40] == ZP and m[150, 150] == ICM
 
+
+def test_fetch_image_rejects_oversized_data_uri(monkeypatch):
+    import base64
+    import cv2
+    from tasdf_online import ls_format
+
+    ok, buf = cv2.imencode(".png", np.zeros((64, 80), np.uint8))
+    uri = "data:image/png;base64," + base64.b64encode(buf.tobytes()).decode("ascii")
+    monkeypatch.setattr(ls_format, "MAX_IMAGE_PIXELS", 100)
+    with pytest.raises(ValueError, match="pixels"):
+        ls_format.fetch_image("", "", uri)
+    monkeypatch.setattr(ls_format, "MAX_IMAGE_BYTES", 10)
+    with pytest.raises(ValueError, match="bytes"):
+        ls_format.fetch_image("", "", uri)
+

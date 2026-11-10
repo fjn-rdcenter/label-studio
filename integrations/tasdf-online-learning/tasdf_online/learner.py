@@ -164,11 +164,14 @@ def gate(cand: dict, prev: dict, base: dict, prev_min=-0.005, prev_drop=0.05, ba
         reasons.append(f"mDice vs prev {d_prev:+.4f} < {prev_min}")
     if d_base < base_min:
         reasons.append(f"mDice vs v0 {d_base:+.4f} < {base_min}")
+    # metrics reloaded from registry.json have str keys ("1"), fresh ones have int keys
+    prev_d, base_d = ({int(k): x for k, x in m["dice"].items()} for m in (prev, base))
     for c, v in cand["dice"].items():
-        if prev["dice"].get(c, v) - v > prev_drop:
-            reasons.append(f"class {c} drop vs prev {prev['dice'][c] - v:.4f} > {prev_drop}")
-        if base["dice"].get(c, v) - v > base_drop:
-            reasons.append(f"class {c} drop vs v0 {base['dice'][c] - v:.4f} > {base_drop}")
+        c = int(c)
+        if prev_d.get(c, v) - v > prev_drop:
+            reasons.append(f"class {c} drop vs prev {prev_d[c] - v:.4f} > {prev_drop}")
+        if base_d.get(c, v) - v > base_drop:
+            reasons.append(f"class {c} drop vs v0 {base_d[c] - v:.4f} > {base_drop}")
     return not reasons, reasons
 
 

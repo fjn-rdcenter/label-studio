@@ -74,7 +74,7 @@ def test_dashboard_toggle_and_standalone(client):
     assert client.get("/dashboard").status_code == 200
 
 
-@pytest.mark.parametrize("next_n", [1, 0])  # 0 = on-demand: still deletes stale + precomputes 1 so PATCH validates
+@pytest.mark.parametrize("next_n", [1, 0])  # 0 = on-demand: still precomputes 1 so PATCH validates
 def test_refresh_ls_creates_predictions_before_patch(settings, monkeypatch, next_n):
     img = np.zeros((256, 256), np.float32)
     monkeypatch.setattr(app_module, "fetch_image", lambda *a, **k: (img, 256, 256))
@@ -100,8 +100,75 @@ def test_refresh_ls_creates_predictions_before_patch(settings, monkeypatch, next
     monkeypatch.setattr(app_module.requests, "get", fake_get)
     monkeypatch.setattr(app_module.requests, "request", fake_req)
     stats = svc.refresh_ls()
-    assert stats == {"deleted": 1, "created": 1, "errors": 0}
-    assert [m for m, _ in calls] == ["DELETE", "POST", "PATCH"]
+    # old predictions are never deleted: an open annotation may reference one as parent_prediction
+    assert stats == {"created": 1, "errors": 0}
+    assert [m for m, _ in calls] == ["POST", "PATCH"]
+
+
+def test_refresh_ls_skips_when_already_running(settings):
+    s = dataclasses.replace(settings, ls_url="http://ls.test", ls_token="tok")
+    svc = app_module.OnlineService(s)
+    with svc.refresh_lock:
+        assert svc.refresh_ls() == {"skipped": "a refresh is already running"}
+
+
+def test_forged_webhook_is_checked_against_label_studio(settings, monkeypatch):
+    img = np.zeros((256, 256), np.float32)
+    monkeypatch.setattr(app_module, "fetch_image", lambda *a, **k: (img, 256, 256))
+    s = dataclasses.replace(settings, ls_url="http://ls.test", ls_token="tok")
+    svc = app_module.OnlineService(s)
+    real = {"id": 11, "task": 5, "project": 7, "quality_level": 1, "was_cancelled": False,
+            "result": mask_to_results(blastocyst_mask(), 256, 256, "seg", "image")}
+
+    def fake_req(method, url, **kw):
+        class R:
+            def raise_for_status(self): pass
+            def json(self):
+                return real if "/api/annotations/" in url else {"id": 5, "data": {"image": "/data/a.png"}}
+        return R()
+
+    monkeypatch.setattr(app_module.requests, "request", fake_req)
+    assert svc.enqueue(_event(quality=3)) == "queued"  # payload claims level 3, LS says level 1
+    deadline = time.time() + 30
+    while time.time() < deadline and "last_skipped" not in svc.telemetry:
+        time.sleep(0.1)
+    assert svc.telemetry["last_skipped"] == {"annotation_id": 11, "reason": "ignored-quality"}
+    assert svc.telemetry["episodes"] == []
+
+
+def test_webhook_without_project_is_ignored(client):
+    event = _event()
+    del event["project"]
+    assert client.post("/webhook", json=event).get_json()["status"] == "ignored-project"
+
+
+def test_predict_survives_one_bad_task(client, monkeypatch):
+    good = np.zeros((256, 256), np.float32)
+
+    def fake_fetch(ls_url, token, source, timeout=30):
+        if "bad" in source:
+            raise ValueError("broken image")
+        return good, 256, 256
+
+    monkeypatch.setattr(app_module, "fetch_image", fake_fetch)
+    tasks = [{"id": 1, "data": {"image": "/data/ok.png"}}, {"id": 2, "data": {"image": "/data/bad.png"}}]
+    body = client.post("/predict", json={"tasks": tasks}).get_json()
+    assert len(body["results"]) == 2 and body["results"][1]["result"] == []
+
+
+def test_setup_from_other_project_keeps_label_config(client):
+    svc = client.application.config["svc"]
+    before = svc.label
+    other = '<View><Image name="x" value="$pic"/><PolygonLabels name="q" toName="x"><Label value="ZP"/></PolygonLabels></View>'
+    client.post("/setup", json={"project": "99.1700000000", "schema": other})
+    assert svc.label == before
+    client.post("/setup", json={"project": "7.1700000000", "schema": other})
+    assert svc.label == ("q", "x", "pic")
+
+
+def test_rollback_validates_version(client):
+    assert client.post("/rollback", json={"version": "../../etc"}, headers=AUTH).status_code == 400
+    assert client.post("/rollback", json={"version": "v5"}, headers=AUTH).status_code == 404
 
 
 def test_ops_token_not_accepted_in_query(client):

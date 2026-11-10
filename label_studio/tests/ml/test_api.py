@@ -1,6 +1,7 @@
 import json
 
 import pytest
+import requests_mock
 from projects.models import ProjectMember
 from projects.models import Task
 from rest_framework import status
@@ -25,7 +26,16 @@ def test_labelers_can_open_project_without_reading_ml_backend_configuration(anno
 
     list_response = client.get(f'/api/ml/?project={configured_project.id}')
     assert list_response.status_code == 200
-    assert list_response.data == [{'id': backend.id, 'is_interactive': backend.is_interactive}]
+    backend.refresh_from_db()  # the list call refreshes backend state
+    assert list_response.data == [
+        {
+            'id': backend.id,
+            'is_interactive': backend.is_interactive,
+            'title': backend.title,
+            'state': backend.state,
+            'model_version': backend.model_version,
+        }
+    ]
     assert client.get(f'/api/ml/{backend.id}').status_code == 403
     assert client.post(
         '/api/ml/',
@@ -34,6 +44,32 @@ def test_labelers_can_open_project_without_reading_ml_backend_configuration(anno
     ).status_code == 403
     assert client.post(f'/api/ml/{backend.id}/train').status_code == 403
     assert client.post(f'/api/ml/{backend.id}/predict/test?random=true').status_code == 403
+
+
+@pytest.mark.django_db
+def test_labeler_task_prediction_does_not_change_project_model_version(annotator_client, configured_project):
+    backend = configured_project.ml_backends.first()
+    task = configured_project.tasks.first()
+    version_before = configured_project.model_version
+    result = [{'from_name': 'text_class', 'to_name': 'text', 'type': 'choices', 'value': {'choices': ['class_A']}}]
+    client = APIClient()
+    client.force_authenticate(user=annotator_client.user)
+    with requests_mock.Mocker() as m:
+        register_ml_backend_mock(
+            m,
+            url=backend.url,
+            setup_model_version='tasdf-v9',
+            predictions={'results': [{'result': result, 'score': 0.5, 'model_version': 'tasdf-v9'}]},
+        )
+        response = client.post(f'/api/ml/{backend.id}/predict/test?task={task.id}')
+        # Auto-Annotation re-asks on every task open: same model version -> same prediction, no new row
+        again = client.post(f'/api/ml/{backend.id}/predict/test?task={task.id}')
+    assert response.status_code == 200, response.data
+    assert response.data['data']['model_version'] == 'tasdf-v9'
+    assert again.data['data']['id'] == response.data['data']['id']
+    assert task.predictions.filter(model_version='tasdf-v9').count() == 1
+    configured_project.refresh_from_db()
+    assert configured_project.model_version == version_before
 
 
 @pytest.fixture

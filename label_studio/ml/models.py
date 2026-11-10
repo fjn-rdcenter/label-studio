@@ -365,22 +365,28 @@ class MLBackend(models.Model):
             instances = prediction_ser.save()
         return instances
 
-    def predict_single_task(self, task):
+    def predict_single_task(self, task, update_project_version=False):
         self.update_state()
         if self.not_ready:
             return {'errors': [f'ML backend {self.title} is not ready ({self.get_state_display()})']}
-        tasks_ser = TaskSimpleSerializer([task], many=True).data
-        predictions = self._get_predictions_from_ml_backend(tasks_ser)
-        if not predictions:
-            return {'errors': [f'No prediction returned from {self.title}']}
-        pred_data = predictions[0]
-        from tasks.models import Prediction
+        # idempotent per model version: Auto-Annotation asks again every time the task is opened
+        instance = (
+            task.predictions.filter(model_version=self.model_version).order_by('-id').first()
+            if self.model_version
+            else None
+        )
         with conditional_atomic(predicate=db_is_not_sqlite):
-            Prediction.objects.filter(task=task, model_version=pred_data.get('model_version')).delete()
-            prediction_ser = PredictionSerializer(data=pred_data)
-            prediction_ser.is_valid(raise_exception=True)
-            instance = prediction_ser.save()
-            if instance.model_version and self.project.model_version != instance.model_version:
+            if instance is None:
+                tasks_ser = TaskSimpleSerializer([task], many=True).data
+                predictions = self._get_predictions_from_ml_backend(tasks_ser)
+                if not predictions:
+                    return {'errors': [f'No prediction returned from {self.title}']}
+                # no delete of older predictions: the annotation open in the editor may reference one as parent_prediction
+                prediction_ser = PredictionSerializer(data=predictions[0])
+                prediction_ser.is_valid(raise_exception=True)
+                instance = prediction_ser.save()
+            # project settings are Manager-only; labelers just get the prediction back
+            if update_project_version and instance.model_version and self.project.model_version != instance.model_version:
                 self.project.model_version = instance.model_version
                 self.project.save(update_fields=['model_version'])
         return {'data': PredictionSerializer(instance).data}

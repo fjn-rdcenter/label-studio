@@ -1,4 +1,5 @@
 import { inject, observer } from "mobx-react";
+import { getEnv } from "mobx-state-tree";
 import { useEffect } from "react";
 import { Space } from "../../common/Space/Space";
 import Toggle from "../../common/Toggle/Toggle";
@@ -24,6 +25,8 @@ export const DynamicPreannotationsToggle = inject("store")(
                 const checked = e.target.checked;
 
                 store.setAutoAnnotation(checked);
+                // lets the host app (DataManager page) fetch whole-image suggestions right away
+                getEnv(store).events.invoke("autoAnnotationChanged", checked);
 
                 if (!checked) {
                   ToolsManager.allInstances().forEach((inst) => inst.selectDefault());

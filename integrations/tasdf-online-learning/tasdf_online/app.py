@@ -12,6 +12,7 @@ import logging
 import os
 import queue
 import random
+import re
 import threading
 import time
 from collections import OrderedDict, deque
@@ -48,6 +49,14 @@ def parse_label_config(xml: str | None) -> tuple[str, str, str]:
     return poly.get("name"), to_name, image.get("value")[1:]
 
 
+def _sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _load_npz(path: str, limit: int = 0):
     if not path:
         return None
@@ -71,6 +80,11 @@ class OnlineService:
             log.warning("BASELINE_CKPT not set: using a randomly initialised model (tests/smoke only)")
             self.base_state = learner.build_model(s.base_channels, s.erosion).state_dict()
         self.registry = Registry(s.state_dir, s.ls_project_id)
+        holdout_changed = self.registry.sync_fingerprint({
+            "baseline": _sha256(s.baseline_ckpt) if s.baseline_ckpt else "random-init",
+            "holdout": _sha256(s.holdout_npz) if s.holdout_npz else None,
+            "holdout_limit": s.holdout_limit,
+        })
         self.teacher = self._load(self.registry.active)
         self.holdout = _load_npz(s.holdout_npz, s.holdout_limit)
         self.anchors = _load_npz(s.anchor_npz)
@@ -78,6 +92,7 @@ class OnlineService:
         self.label = parse_label_config(None)
         self.lock = threading.RLock()
         self.qlock = threading.Lock()
+        self.refresh_lock = threading.Lock()
         self.queue: queue.Queue = queue.Queue()
         self.pending: dict = {}
         self.seen: dict = {}
@@ -85,8 +100,11 @@ class OnlineService:
         self.last_predicted_mask: OrderedDict[int, np.ndarray] = OrderedDict()
         self.dashboard_enabled: bool = s.dashboard_enabled
         self.telemetry: dict = {"status": "idle", "episodes": [], "next_task_dice": []}
-        if self.holdout is not None and "metrics" not in self.registry.info("v0"):
+        if self.holdout is not None and (holdout_changed or "metrics" not in self.registry.info("v0")):
+            # the gate compares against v0 and the active version: both must be measured on this holdout
             self.registry.record("v0", metrics=learner.evaluate(self._load("v0"), *self.holdout))
+            if self.registry.active != "v0":
+                self.registry.record(self.registry.active, metrics=learner.evaluate(self.teacher, *self.holdout))
         threading.Thread(target=self._worker, daemon=True, name="tasdf-online-worker").start()
 
     # ---- model -------------------------------------------------------------------------------
@@ -99,11 +117,13 @@ class OnlineService:
     def model_version(self) -> str:
         return f"tasdf-{self.registry.active}"
 
-    def _image(self, task: dict):
-        return fetch_image(self.s.ls_url, self.s.ls_token, task["data"][self.label[2]], self.s.request_timeout)
+    def _image(self, task: dict, label: tuple[str, str, str] | None = None):
+        key = (label or self.label)[2]
+        return fetch_image(self.s.ls_url, self.s.ls_token, task["data"][key], self.s.request_timeout)
 
-    def predict_task(self, task: dict) -> dict:
-        img, w, h = self._image(task)
+    def predict_task(self, task: dict, label: tuple[str, str, str] | None = None) -> dict:
+        label = label or self.label
+        img, w, h = self._image(task, label)
         with self.lock:
             probs, _ = learner.predict_probs(self.teacher, torch.from_numpy(img)[None, None])
             version = self.model_version
@@ -117,15 +137,12 @@ class OnlineService:
                     self.last_predicted_mask.popitem(last=False)
         fg = mask > 0
         score = float(conf[torch.from_numpy(fg)].mean()) if fg.any() else 0.0
-        result = mask_to_results(mask, w, h, self.label[0], self.label[1])
+        result = mask_to_results(mask, w, h, label[0], label[1])
         return {"result": result, "score": score, "model_version": version}
 
     # ---- webhook / training ------------------------------------------------------------------
-    def enqueue(self, payload: dict) -> str:
-        if payload.get("action") not in TRAIN_ACTIONS:
-            return "ignored-action"
-        ann, task = payload.get("annotation") or {}, payload.get("task") or {}
-        if self.s.ls_project_id and (payload.get("project") or {}).get("id", self.s.ls_project_id) != self.s.ls_project_id:
+    def _skip_reason(self, ann: dict, project_id) -> str | None:
+        if self.s.ls_project_id and project_id != self.s.ls_project_id:
             return "ignored-project"
         if ann.get("was_cancelled") or not ann.get("result"):
             return "ignored-empty"
@@ -133,26 +150,56 @@ class OnlineService:
             return "ignored-quality"
         if not bio_valid(results_to_mask(ann["result"], self.label[0])):
             return "ignored-invalid-mask"
+        return None
+
+    @staticmethod
+    def _digest(ann: dict) -> str:
         geom = [{k: v for k, v in r.items() if k != "id"} for r in ann["result"] if isinstance(r, dict)]
-        digest = hashlib.sha1(json.dumps(geom, sort_keys=True).encode()).hexdigest()
-        if self.seen.get(ann.get("id")) == digest:
+        return hashlib.sha1(json.dumps(geom, sort_keys=True).encode()).hexdigest()
+
+    def enqueue(self, payload: dict) -> str:
+        if payload.get("action") not in TRAIN_ACTIONS:
+            return "ignored-action"
+        ann, task = payload.get("annotation") or {}, payload.get("task") or {}
+        if not isinstance(ann.get("id"), int):
+            return "ignored-invalid-id"
+        reason = self._skip_reason(ann, (payload.get("project") or {}).get("id"))
+        if reason:
+            return reason
+        digest = self._digest(ann)
+        if self.seen.get(ann["id"]) == digest:
             return "ignored-unchanged"
         with self.qlock:
-            first = ann.get("id") not in self.pending
-            self.pending[ann.get("id")] = (ann, task, digest)  # coalesce: keep the latest version only
+            first = ann["id"] not in self.pending
+            self.pending[ann["id"]] = (ann, task)  # coalesce: keep the latest version only
             if first:
-                self.queue.put(ann.get("id"))
+                self.queue.put(ann["id"])
         return "queued"
+
+    def _from_ls(self, ann_id: int) -> tuple[dict, dict]:
+        """The webhook is only a notification: re-read annotation and task from LS so a forged
+        payload cannot inject labels, a quality level or another image."""
+        ann = self._ls("GET", f"/api/annotations/{ann_id}").json()
+        task = self._ls("GET", f"/api/tasks/{int(ann['task'])}").json()
+        return ann, task
 
     def _worker(self):
         while True:
             ann_id = self.queue.get()
             with self.qlock:
-                ann, task, digest = self.pending.pop(ann_id)
+                ann, task = self.pending.pop(ann_id)
             self.telemetry["status"] = f"training annotation {ann_id}"
             try:
+                if self.s.ls_url:  # offline tests (no LS) train on the payload as-is
+                    ann, task = self._from_ls(ann_id)
+                    reason = self._skip_reason(ann, ann.get("project"))
+                    if reason:
+                        self.telemetry["last_skipped"] = {"annotation_id": ann_id, "reason": reason}
+                        continue
                 self._episode(ann, task)
-                self.seen[ann_id] = digest
+                self.seen[ann_id] = self._digest(ann)
+                if len(self.seen) > 10_000:
+                    self.seen.pop(next(iter(self.seen)))
             except Exception as exc:  # keep the worker alive; surface the error in telemetry
                 log.exception("episode failed for annotation %s", ann_id)
                 self.telemetry["last_error"] = f"{type(exc).__name__}: {exc}"
@@ -182,7 +229,8 @@ class OnlineService:
         record = {"annotation_id": ann.get("id"), "task_id": task.get("id"), "at": t0}
         if p_init is not None:
             record["next_task_dice"] = learner.mean_dice(p_init, y)[0]
-            self.telemetry["next_task_dice"].append({"task_id": task.get("id"), "dice": record["next_task_dice"]})
+            self.telemetry["next_task_dice"] = (self.telemetry["next_task_dice"] + [
+                {"task_id": task.get("id"), "dice": record["next_task_dice"]}])[-500:]
 
         teacher, parent = self.teacher, self.registry.active
         x = torch.from_numpy(img)[None, None]
@@ -251,22 +299,26 @@ class OnlineService:
             page += 1
 
     def refresh_ls(self) -> dict:
-        """Drop stale predictions on unlabeled tasks, precompute the next N for the active version,
-        then PATCH project.model_version (LS validate_model_version requires predictions with that
-        version to exist first). Needs a project-Manager token."""
+        """Precompute the next N unlabeled tasks for the active version, then PATCH project.model_version
+        (LS validate_model_version requires a prediction of that version first). Old predictions are kept:
+        an annotator may have one open (parent_prediction), and LS only shows the project's version.
+        Needs a project-Manager token."""
         if not (self.s.ls_url and self.s.ls_token and self.s.ls_project_id):
             return {"skipped": "LS_URL/LS_TOKEN/LS_PROJECT_ID not set"}
+        if not self.refresh_lock.acquire(blocking=False):
+            return {"skipped": "a refresh is already running"}
+        try:
+            return self._refresh_ls()
+        finally:
+            self.refresh_lock.release()
+
+    def _refresh_ls(self) -> dict:
         # LS validate_model_version needs >=1 prediction of the new version before PATCH, so on-demand (N=0) still does 1
         precompute_n = max(1, self.s.refresh_next_n)
-        name, stats = self.model_version, {"deleted": 0, "created": 0, "errors": 0}
+        name, stats = self.model_version, {"created": 0, "errors": 0}
         try:
             tasks = list(self._project_tasks())
             unlabeled = [t for t in tasks if not any(not a.get("was_cancelled") for a in t.get("annotations", []))]
-            for t in unlabeled:
-                for p in t.get("predictions", []):
-                    if p.get("model_version") != name:
-                        self._ls("DELETE", f"/api/predictions/{p['id']}")
-                        stats["deleted"] += 1
             for t in sorted(unlabeled, key=lambda t: t["id"])[:precompute_n]:
                 if any(p.get("model_version") == name for p in t.get("predictions", [])):
                     continue
@@ -313,9 +365,11 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
 
     @app.post("/setup")
     def setup():
-        schema = (request.get_json(silent=True) or {}).get("schema")
-        if schema:
-            svc.label = parse_label_config(schema)
+        payload = request.get_json(silent=True) or {}
+        # LS sends project as "<id>.<created_ts>"; only the configured project may set the training label config
+        project_id = str(payload.get("project", "")).split(".")[0]
+        if payload.get("schema") and (not settings.ls_project_id or project_id == str(settings.ls_project_id)):
+            svc.label = parse_label_config(payload["schema"])
         return jsonify(model_version=svc.model_version)
 
     @app.post("/validate")
@@ -327,12 +381,19 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
     @app.post("/predict")
     def predict():
         payload = request.get_json(silent=True) or {}
-        if payload.get("label_config"):
-            svc.label = parse_label_config(payload["label_config"])
+        # per-request config: never overwrite the shared one (another project may call this backend)
+        label = parse_label_config(payload["label_config"]) if payload.get("label_config") else None
         tasks = payload.get("tasks")
         if not isinstance(tasks, list) or not tasks:
             return jsonify(error="tasks must be a non-empty list"), 400
-        return jsonify(results=[svc.predict_task(t) for t in tasks], model_version=svc.model_version)
+        results = []
+        for t in tasks:
+            try:
+                results.append(svc.predict_task(t, label))
+            except Exception:  # one bad task must not fail the whole batch
+                log.exception("predict failed for task %s", t.get("id") if isinstance(t, dict) else t)
+                results.append({"result": [], "score": 0.0, "model_version": svc.model_version})
+        return jsonify(results=results, model_version=svc.model_version)
 
     @app.post("/webhook")
     def webhook():
@@ -355,8 +416,13 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
     def rollback():
         if not ops_allowed():
             return jsonify(error="unauthorized"), 401
-        version = (request.get_json(silent=True) or {}).get("version", "v0")
-        svc.rollback(version)
+        version = str((request.get_json(silent=True) or {}).get("version", "v0"))
+        if not re.fullmatch(r"v\d+", version):
+            return jsonify(error="version must look like v<N>"), 400
+        try:
+            svc.rollback(version)
+        except FileNotFoundError:
+            return jsonify(error=f"no stored weights for {version} (rejected or unknown)"), 404
         return jsonify(active=svc.model_version, refresh=svc.refresh_ls())
 
     @app.post("/refresh_ls_predictions")
