@@ -74,10 +74,11 @@ def test_dashboard_toggle_and_standalone(client):
     assert client.get("/dashboard").status_code == 200
 
 
-def test_refresh_ls_creates_predictions_before_patch(settings, monkeypatch):
+@pytest.mark.parametrize("next_n", [1, 0])  # 0 = on-demand: still deletes stale + precomputes 1 so PATCH validates
+def test_refresh_ls_creates_predictions_before_patch(settings, monkeypatch, next_n):
     img = np.zeros((256, 256), np.float32)
     monkeypatch.setattr(app_module, "fetch_image", lambda *a, **k: (img, 256, 256))
-    s = dataclasses.replace(settings, ls_url="http://ls.test", ls_token="tok", ls_project_id=7, refresh_next_n=1)
+    s = dataclasses.replace(settings, ls_url="http://ls.test", ls_token="tok", ls_project_id=7, refresh_next_n=next_n)
     svc = app_module.OnlineService(s)
     calls = []
 
@@ -101,6 +102,23 @@ def test_refresh_ls_creates_predictions_before_patch(settings, monkeypatch):
     stats = svc.refresh_ls()
     assert stats == {"deleted": 1, "created": 1, "errors": 0}
     assert [m for m, _ in calls] == ["DELETE", "POST", "PATCH"]
+
+
+def test_ops_token_not_accepted_in_query(client):
+    assert client.get("/telemetry/live?token=secret").status_code == 401
+    assert client.get("/telemetry/live", headers=AUTH).status_code == 200
+
+
+def test_mask_cache_bounded_and_consumed(client, monkeypatch):
+    monkeypatch.setattr(app_module, "MAX_CACHED_MASKS", 8)  # keep the test fast; the bound logic is size-independent
+    svc = client.application.config["svc"]
+    n = app_module.MAX_CACHED_MASKS + 5
+    for i in range(n):
+        svc.predict_task({"id": i, "data": {"image": "/data/x.png"}})
+    assert len(svc.last_predicted_mask) == app_module.MAX_CACHED_MASKS
+    assert 0 not in svc.last_predicted_mask and n - 1 in svc.last_predicted_mask
+    assert svc._initial_prediction({}, n - 1) is not None
+    assert n - 1 not in svc.last_predicted_mask  # popped once used for training
 
 
 def test_rollback_requires_token(client):

@@ -14,7 +14,7 @@ import queue
 import random
 import threading
 import time
-from collections import deque
+from collections import OrderedDict, deque
 
 import numpy as np
 import requests
@@ -30,6 +30,7 @@ from .registry import Registry
 
 log = logging.getLogger("tasdf_online")
 TRAIN_ACTIONS = {"ANNOTATION_CREATED", "ANNOTATION_UPDATED"}
+MAX_CACHED_MASKS = 512  # 256x256 uint8 each -> ~32 MB
 
 
 def parse_label_config(xml: str | None) -> tuple[str, str, str]:
@@ -80,7 +81,8 @@ class OnlineService:
         self.queue: queue.Queue = queue.Queue()
         self.pending: dict = {}
         self.seen: dict = {}
-        self.last_predicted_mask: dict[int, np.ndarray] = {}
+        # shortcut: LRU of recent predictions only; older tasks fall back to parent_prediction / teacher
+        self.last_predicted_mask: OrderedDict[int, np.ndarray] = OrderedDict()
         self.dashboard_enabled: bool = s.dashboard_enabled
         self.telemetry: dict = {"status": "idle", "episodes": [], "next_task_dice": []}
         if self.holdout is not None and "metrics" not in self.registry.info("v0"):
@@ -108,7 +110,11 @@ class OnlineService:
         conf, mask = probs[0].max(0)
         mask = mask.numpy().astype(np.uint8)
         if task.get("id") is not None:
-            self.last_predicted_mask[int(task["id"])] = mask.copy()
+            with self.qlock:
+                self.last_predicted_mask[int(task["id"])] = mask.copy()
+                self.last_predicted_mask.move_to_end(int(task["id"]))
+                while len(self.last_predicted_mask) > MAX_CACHED_MASKS:
+                    self.last_predicted_mask.popitem(last=False)
         fg = mask > 0
         score = float(conf[torch.from_numpy(fg)].mean()) if fg.any() else 0.0
         result = mask_to_results(mask, w, h, self.label[0], self.label[1])
@@ -156,6 +162,8 @@ class OnlineService:
                     torch.cuda.empty_cache()
 
     def _initial_prediction(self, ann: dict, task_id: int | None = None):
+        with self.qlock:  # consumed once: the task is being trained on now
+            cached = self.last_predicted_mask.pop(int(task_id), None) if task_id is not None else None
         pid = ann.get("parent_prediction")
         if pid and self.s.ls_url:
             try:
@@ -164,9 +172,7 @@ class OnlineService:
                 return results_to_mask(resp.json().get("result") or [], self.label[0])
             except requests.RequestException as exc:
                 log.warning("could not fetch parent_prediction %s: %s", pid, exc)
-        if task_id is not None and int(task_id) in self.last_predicted_mask:
-            return self.last_predicted_mask[int(task_id)]
-        return None
+        return cached
 
     def _episode(self, ann: dict, task: dict):
         t0 = time.time()
@@ -250,9 +256,8 @@ class OnlineService:
         version to exist first). Needs a project-Manager token."""
         if not (self.s.ls_url and self.s.ls_token and self.s.ls_project_id):
             return {"skipped": "LS_URL/LS_TOKEN/LS_PROJECT_ID not set"}
-        if self.s.refresh_next_n <= 0:
-            self.telemetry["last_refresh"] = {"version": self.model_version, "skipped": "on-demand mode (REFRESH_NEXT_N=0)"}
-            return self.telemetry["last_refresh"]
+        # LS validate_model_version needs >=1 prediction of the new version before PATCH, so on-demand (N=0) still does 1
+        precompute_n = max(1, self.s.refresh_next_n)
         name, stats = self.model_version, {"deleted": 0, "created": 0, "errors": 0}
         try:
             tasks = list(self._project_tasks())
@@ -262,7 +267,7 @@ class OnlineService:
                     if p.get("model_version") != name:
                         self._ls("DELETE", f"/api/predictions/{p['id']}")
                         stats["deleted"] += 1
-            for t in sorted(unlabeled, key=lambda t: t["id"])[: self.s.refresh_next_n]:
+            for t in sorted(unlabeled, key=lambda t: t["id"])[:precompute_n]:
                 if any(p.get("model_version") == name for p in t.get("predictions", [])):
                     continue
                 try:
@@ -293,14 +298,14 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
     svc = service
     if svc is None:
         svc = OnlineService(settings)
-        if settings.refresh_next_n > 0:
-            threading.Thread(target=svc.refresh_ls, daemon=True).start()
+        # sync LS with the active version after every restart (needs LS reachable)
+        threading.Thread(target=svc.refresh_ls, daemon=True).start()
     app = Flask(__name__)
     app.config["svc"] = svc
 
     def ops_allowed() -> bool:
-        tok = request.headers.get("X-OL-Token") or request.args.get("token")
-        return bool(settings.ol_token) and tok == settings.ol_token
+        # header only: a ?token= query would end up in the gunicorn access log
+        return bool(settings.ol_token) and request.headers.get("X-OL-Token") == settings.ol_token
 
     @app.get("/health")
     def health():

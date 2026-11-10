@@ -112,8 +112,6 @@ table{width:100%;border-collapse:collapse} th,td{padding:4px 6px;border-bottom:1
   <div class="card"><h2>3. Version Lineage & Holdout mDice (v0 → vt)</h2><table id="vers"></table></div>
 </div>
 <script>
-const qTok=new URLSearchParams(location.search).get('token');
-if(qTok)sessionStorage.setItem('ol_tok',qTok);
 const tokEl=document.getElementById('tok'); tokEl.value=sessionStorage.getItem('ol_tok')||'';
 let capOn=true;
 function hdr(){return {'X-OL-Token':tokEl.value,'Content-Type':'application/json'};}

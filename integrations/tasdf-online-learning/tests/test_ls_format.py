@@ -60,6 +60,21 @@ def test_media_url_only_label_studio():
         ls_media_url("http://webapp:8080", "/api/projects/")
 
 
+def test_brush_rle_round_trip_with_reference_encoder():
+    import cv2
+
+    brush = pytest.importorskip("label_studio_converter.brush")
+    full = cv2.resize(blastocyst_mask(), (320, 240), interpolation=cv2.INTER_NEAREST)  # non-square original size
+    results = [
+        {"type": "brushlabels", "from_name": "mask", "original_width": 320, "original_height": 240,
+         "value": {"format": "rle", "rle": brush.mask2rle(((full == c) * 255).astype(np.uint8)), "brushlabels": [name]}}
+        for c, name in ((ZP, "ZP"), (TE, "TE"), (BC, "BC"), (ICM, "ICM"))
+    ]
+    expected = cv2.resize(full, (256, 256), interpolation=cv2.INTER_NEAREST)
+    mdice, per = mean_dice(results_to_mask(results, "seg"), expected)
+    assert mdice >= 0.98, per
+
+
 def test_bio_valid_rejects_empty_and_saturated():
     assert bio_valid(blastocyst_mask())
     assert not bio_valid(np.zeros((256, 256), np.uint8))

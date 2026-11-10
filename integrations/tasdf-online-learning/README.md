@@ -31,9 +31,9 @@ LS lưu annotation ──/webhook (tự tạo khi thêm backend)──> queue (t
 | `STATE_DIR` | `/data/tasdf-online` | Nơi lưu `registry.json` và `versions/vN.pt` cho từng project |
 | `LS_URL`, `LS_TOKEN`, `LS_PROJECT_ID` | — | `LS_TOKEN` phải là token của user có role **Manager trong project**. Org Admin chỉ có quyền đọc trong fork này |
 | `MIN_QUALITY_LEVEL` | 2 | Chỉ học từ annotation đã được Reviewer/Manager duyệt. Đặt 1 khi demo |
-| `OL_TOKEN` | — | Header `X-OL-Token` dùng cho `/telemetry/live`, `/rollback`, `/refresh_ls_predictions`, `/dashboard/toggle`. Bỏ trống thì các endpoint này bị khoá |
+| `OL_TOKEN` | — | Chỉ nhận qua header `X-OL-Token` (không nhận `?token=` để tránh lộ trong access log), dùng cho `/telemetry/live`, `/rollback`, `/refresh_ls_predictions`, `/dashboard/toggle`. Trên `/dashboard` nhập token vào ô Token. Bỏ trống thì các endpoint này bị khoá |
 | `DASHBOARD_ENABLED` | `1` | Bật/tắt công cụ debug & theo dõi `/dashboard` (hoặc bật/tắt lúc đang chạy qua `POST /dashboard/toggle`). Có thể chạy tách rời hoàn toàn bằng `BACKEND_URL=http://localhost:9090 DASHBOARD_PORT=9091 python -m tasdf_online.dashboard` |
-| `REFRESH_NEXT_N` | 10 | Số task chưa gán nhãn được predict sẵn sau mỗi lần promote |
+| `REFRESH_NEXT_N` | 0 | Số task chưa gán nhãn được predict sẵn sau mỗi lần promote (và lúc khởi động). Mỗi lần đồng bộ đều xoá prediction cũ trên task chưa gán nhãn rồi PATCH `project.model_version`. `0` = on-demand: chỉ predict sẵn 1 task (LS yêu cầu có ≥1 prediction của version mới mới cho đổi `model_version`); các task khác tự predict khi mở từ Data Manager. Luồng Label Stream (`/next/`) chỉ có gợi ý cho task đã được predict sẵn |
 
 Tạo file holdout và anchor từ repo nghiên cứu (định dạng folder `images/` + `masks/`):
 
