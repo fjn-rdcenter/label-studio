@@ -8,6 +8,7 @@ services:
       context: ./integrations/tasdf-online-learning
       args:
         TORCH_INDEX_URL: ${TASDF_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+    user: "${UID:-1000}:${GID:-1000}"
     restart: unless-stopped
     depends_on:
       - webapp
@@ -21,6 +22,7 @@ services:
       STATE_DIR: /data/tasdf-online/state
       BASELINE_CKPT: /data/tasdf-online/baseline.pt
       HOLDOUT_NPZ: /data/tasdf-online/holdout.npz
+      ANCHOR_NPZ: /data/tasdf-online/anchors.npz
       # CPU-friendly defaults; raise on GPU
       EPISODE_EPOCHS: ${TASDF_EPISODE_EPOCHS:-1}
       HOLDOUT_LIMIT: ${TASDF_HOLDOUT_LIMIT:-8}

@@ -84,3 +84,5 @@ docker-compose.override.yml
 # local data
 .data
 data
+
+OPERATIONS.md
