@@ -74,7 +74,7 @@ def test_dashboard_toggle_and_standalone(client):
     assert client.get("/dashboard").status_code == 200
 
 
-@pytest.mark.parametrize("next_n", [1, 0])  # 0 = on-demand: still precomputes 1 so PATCH validates
+@pytest.mark.parametrize("next_n", [1, 0])
 def test_refresh_ls_creates_predictions_before_patch(settings, monkeypatch, next_n):
     img = np.zeros((256, 256), np.float32)
     monkeypatch.setattr(app_module, "fetch_image", lambda *a, **k: (img, 256, 256))
@@ -100,9 +100,10 @@ def test_refresh_ls_creates_predictions_before_patch(settings, monkeypatch, next
     monkeypatch.setattr(app_module.requests, "get", fake_get)
     monkeypatch.setattr(app_module.requests, "request", fake_req)
     stats = svc.refresh_ls()
-    # old predictions are never deleted: an open annotation may reference one as parent_prediction
-    assert stats == {"created": 1, "errors": 0}
-    assert [m for m, _ in calls] == ["POST", "PATCH"]
+    expected_created = 1 if next_n > 0 else 0
+    assert stats == {"created": expected_created, "errors": 0}
+    expected_calls = ["POST", "PATCH"] if next_n > 0 else ["PATCH"]
+    assert [m for m, _ in calls] == expected_calls
 
 
 def test_refresh_ls_skips_when_already_running(settings):

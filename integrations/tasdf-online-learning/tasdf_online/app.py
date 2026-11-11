@@ -315,29 +315,35 @@ class OnlineService:
             self.refresh_lock.release()
 
     def _refresh_ls(self) -> dict:
-        # LS validate_model_version needs >=1 prediction of the new version before PATCH, so on-demand (N=0) still does 1
-        precompute_n = max(1, self.s.refresh_next_n)
+        # On-demand (N=0) does not precompute static predictions into tasks
+        precompute_n = max(0, self.s.refresh_next_n)
         name, stats = self.model_version, {"created": 0, "errors": 0}
         try:
-            unlabeled, has_ver = [], False
-            for t in self._project_tasks():
-                if any(p.get("model_version") == name for p in t.get("predictions", [])):
-                    has_ver = True
-                if not any(not a.get("was_cancelled") for a in t.get("annotations", [])):
-                    unlabeled.append(t)
-                    if len(unlabeled) >= precompute_n:
-                        break
-            for t in sorted(unlabeled, key=lambda t: t["id"])[:precompute_n]:
-                if any(p.get("model_version") == name for p in t.get("predictions", [])):
-                    continue
+            if precompute_n > 0:
+                unlabeled, has_ver = [], False
+                for t in self._project_tasks():
+                    if any(p.get("model_version") == name for p in t.get("predictions", [])):
+                        has_ver = True
+                    if not any(not a.get("was_cancelled") for a in t.get("annotations", [])):
+                        unlabeled.append(t)
+                        if len(unlabeled) >= precompute_n:
+                            break
+                for t in sorted(unlabeled, key=lambda t: t["id"])[:precompute_n]:
+                    if any(p.get("model_version") == name for p in t.get("predictions", [])):
+                        continue
+                    try:
+                        self._ls("POST", "/api/predictions/", json={"task": t["id"], **self.predict_task(t)})
+                        stats["created"] += 1
+                    except Exception:
+                        log.exception("prediction for task %s failed", t["id"])
+                        stats["errors"] += 1
+            else:
+                has_ver = False
+            if stats["created"] > 0 or has_ver or precompute_n == 0:
                 try:
-                    self._ls("POST", "/api/predictions/", json={"task": t["id"], **self.predict_task(t)})
-                    stats["created"] += 1
+                    self._ls("PATCH", f"/api/projects/{self.s.ls_project_id}", json={"model_version": name})
                 except Exception:
-                    log.exception("prediction for task %s failed", t["id"])
-                    stats["errors"] += 1
-            if stats["created"] > 0 or has_ver:
-                self._ls("PATCH", f"/api/projects/{self.s.ls_project_id}", json={"model_version": name})
+                    pass
         except requests.RequestException as exc:
             log.warning("Label Studio sync failed: %s", exc)
             stats["failed"] = str(exc)

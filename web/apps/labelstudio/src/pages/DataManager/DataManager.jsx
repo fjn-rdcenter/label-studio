@@ -266,17 +266,21 @@ DataManagerPage.context = ({ dmRef }) => {
         return;
       }
       const pred = response?.data || response;
-      const predResults = pred?.result || [];
+      const predResults = (pred?.result || []).map((r) => ({ ...r, origin: "prediction" }));
+      const predId = pred?.id ? Number.parseInt(pred.id, 10) : null;
+      if (predId && lsfWrapper) {
+        lsfWrapper.smartParentPrediction = predId;
+      }
       const store = lsfWrapper?.lsf;
       let annotation = lsfWrapper?.currentAnnotation || store?.annotationStore?.selected;
       if (store?.annotationStore && (!annotation || annotation.type === "prediction")) {
-        annotation = store.annotationStore.createAnnotation();
+        annotation = store.annotationStore.createAnnotation({
+          userGenerate: true,
+          ...(predId ? { parent_prediction: predId } : {}),
+        });
         store.annotationStore.selectAnnotation(annotation.id);
       }
       if (annotation) {
-        if (pred?.id) {
-          annotation.parent_prediction = Number.parseInt(pred.id);
-        }
         const existing = annotation.serializeAnnotation() || [];
         const manualRegions = existing.filter((r) => !isModelRegion(r));
         const predLabels = new Set(predResults.map(getRegionLabel).filter(Boolean));
@@ -296,6 +300,15 @@ DataManagerPage.context = ({ dmRef }) => {
         }
         annotation.deleteAllRegions({ deleteReadOnly: true });
         annotation.deserializeResults(mergedResults);
+        for (const r of annotation.regions || []) {
+          const sw = r.parent?.stageWidth;
+          const sh = r.parent?.stageHeight;
+          if (r.coordstype === "perc" && sw > 1 && sh > 1) {
+            for (const p of [...(r.points || []), ...(r.holes || [])]) {
+              p._setPos?.((sw * p.x) / 100, (sh * p.y) / 100);
+            }
+          }
+        }
         annotation.updateObjects?.();
       }
       toast?.show?.({

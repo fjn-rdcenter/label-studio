@@ -357,6 +357,7 @@ export class LSFWrapper {
     }
 
     if (hasChangedTasks) {
+      this.smartParentPrediction = null;
       this.lsf.resetState();
     } else {
       this.lsf.resetAnnotationStore();
@@ -441,7 +442,7 @@ export class LSFWrapper {
         annotation = cs.createAnnotation();
       }
     } else {
-      if (this.annotations.length === 0 && this.predictions.length > 0 && !this.isInteractivePreannotations) {
+      if (showPredictions && this.annotations.length === 0 && this.predictions.length > 0 && !this.isInteractivePreannotations) {
         const predictionByModelVersion = this.predictions.find((p) => p.createdBy === this.project.model_version);
         annotation = cs.addAnnotationFromPrediction(predictionByModelVersion ?? this.predictions[0]);
       } else if (this.annotations.length > 0 && id && id !== "auto") {
@@ -976,7 +977,7 @@ export class LSFWrapper {
       lead_time,
       result: (draft ? annotation.versions.draft : annotation.serializeAnnotation()) ?? [],
       draft_id: annotation.draftId,
-      parent_prediction: annotation.parent_prediction,
+      parent_prediction: annotation.parent_prediction ?? this.smartParentPrediction ?? null,
       parent_annotation: annotation.parent_annotation,
     };
 
