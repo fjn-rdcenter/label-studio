@@ -102,8 +102,26 @@ def test_refresh_ls_creates_predictions_before_patch(settings, monkeypatch, next
     stats = svc.refresh_ls()
     expected_created = 1 if next_n > 0 else 0
     assert stats == {"created": expected_created, "errors": 0}
-    expected_calls = ["POST", "PATCH"] if next_n > 0 else ["PATCH"]
+    # N=0: list the project's backends first so LS runs /setup and accepts the new version on PATCH
+    expected_calls = ["POST", "PATCH"] if next_n > 0 else ["GET", "PATCH"]
     assert [m for m, _ in calls] == expected_calls
+
+
+def test_refresh_ls_reports_failed_patch(settings, monkeypatch):
+    s = dataclasses.replace(settings, ls_url="http://ls.test", ls_token="tok", ls_project_id=7, refresh_next_n=0)
+    svc = app_module.OnlineService(s)
+
+    def fake_req(method, url, **kw):
+        class R:
+            def raise_for_status(self):
+                if method == "PATCH":
+                    raise app_module.requests.HTTPError("400 model_version is not valid")
+        return R()
+
+    monkeypatch.setattr(app_module.requests, "request", fake_req)
+    stats = svc.refresh_ls()
+    assert "400" in stats["patch_failed"]
+    assert svc.telemetry["last_refresh"]["patch_failed"] == stats["patch_failed"]
 
 
 def test_refresh_ls_skips_when_already_running(settings):
@@ -209,6 +227,23 @@ def test_ops_open_without_ol_token(settings):
     s = dataclasses.replace(settings, ol_token="")
     c = app_module.create_app(s, app_module.OnlineService(s)).test_client()
     assert c.get("/telemetry/live").status_code == 200
+
+
+def test_ops_closed_without_ol_token_when_dashboard_off(settings):
+    # product: DASHBOARD_ENABLED=0 and no OL_TOKEN -> nobody may roll back or refresh
+    s = dataclasses.replace(settings, ol_token="", dashboard_enabled=False)
+    c = app_module.create_app(s, app_module.OnlineService(s)).test_client()
+    assert c.post("/rollback", json={"version": "v0"}).status_code == 401
+    assert c.post("/refresh_ls_predictions").status_code == 401
+    assert c.get("/telemetry/live").status_code == 401
+
+
+def test_dashboard_not_mounted_when_disabled(settings):
+    # even with a valid OL_TOKEN the product cannot switch the dev dashboard on
+    s = dataclasses.replace(settings, dashboard_enabled=False)
+    c = app_module.create_app(s, app_module.OnlineService(s)).test_client()
+    assert c.get("/dashboard").status_code == 404
+    assert c.post("/dashboard/toggle", json={"enabled": True}, headers=AUTH).status_code == 404
 
 
 def test_webhook_not_trusted_without_ls_token(settings, monkeypatch):

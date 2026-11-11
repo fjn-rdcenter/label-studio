@@ -25,7 +25,7 @@ services:
       EPISODE_EPOCHS: ${TASDF_EPISODE_EPOCHS:-1}
       HOLDOUT_LIMIT: ${TASDF_HOLDOUT_LIMIT:-8}
       DASHBOARD_ENABLED: ${TASDF_DASHBOARD:-1}
-    # published for the ML Dashboard button; /setup /predict /webhook have no auth: trusted network only
+    # published for the dev dashboard (product: TASDF_DASHBOARD=0); /setup /predict /webhook have no auth: trusted network only
     ports:
       - "9090:9090"
     expose:

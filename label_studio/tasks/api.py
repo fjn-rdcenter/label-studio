@@ -299,12 +299,17 @@ class TaskAPI(generics.RetrieveUpdateDestroyAPIView):
 
         # get prediction, also when the task only has predictions of an older model version: an
         # online-learning backend must not delete those (one may be an open annotation's parent_prediction)
-        current = self.task.predictions
-        if project.model_version:
-            current = current.filter(model_version=project.model_version)
-        if (project.evaluate_predictions_automatically or project.show_collab_predictions) and not current.exists():
-            evaluate_predictions([self.task])
-            self.task.refresh_from_db()
+        if project.evaluate_predictions_automatically or project.show_collab_predictions:
+            current = self.task.predictions
+            if project.model_version:
+                # the backend's last reported version (DB field, no HTTP) counts too: otherwise a project version that
+                # never matches the backend output makes every task open call the backend (/health + /setup) again
+                backend = project.ml_backend
+                versions = {project.model_version, getattr(backend, 'model_version', None)} - {None, ''}
+                current = current.filter(model_version__in=versions)
+            if not current.exists():
+                evaluate_predictions([self.task])
+                self.task.refresh_from_db()
 
         serializer = self.get_serializer_class()(
             self.task, many=False, context=context, expand=['annotations.completed_by']

@@ -72,6 +72,24 @@ def test_labeler_task_prediction_does_not_change_project_model_version(annotator
     assert configured_project.model_version == version_before
 
 
+@pytest.mark.django_db
+def test_task_open_skips_backend_when_backend_version_prediction_exists(business_client, configured_project):
+    from tasks.models import Prediction
+
+    backend = configured_project.ml_backends.first()
+    backend.model_version = 'tasdf-v9'
+    backend.save(update_fields=['model_version'])
+    configured_project.model_version = 'some-other-version'  # never returned by the backend
+    configured_project.show_collab_predictions = True
+    configured_project.save(update_fields=['model_version', 'show_collab_predictions'])
+    task = configured_project.tasks.first()
+    Prediction.objects.create(task=task, project=configured_project, result=[], model_version='tasdf-v9')
+    with requests_mock.Mocker() as m:  # nothing registered: any call to the ML backend would raise
+        response = business_client.get(f'/api/tasks/{task.id}')
+    assert response.status_code == 200
+    assert m.call_count == 0
+
+
 @pytest.fixture
 def ml_backend_for_test_api(ml_backend):
     register_ml_backend_mock(

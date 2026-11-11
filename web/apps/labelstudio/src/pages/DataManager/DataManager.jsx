@@ -268,9 +268,6 @@ DataManagerPage.context = ({ dmRef }) => {
       const pred = response?.data || response;
       const predResults = (pred?.result || []).map((r) => ({ ...r, origin: "prediction" }));
       const predId = pred?.id ? Number.parseInt(pred.id, 10) : null;
-      if (predId && lsfWrapper) {
-        lsfWrapper.smartParentPrediction = predId;
-      }
       const store = lsfWrapper?.lsf;
       let annotation = lsfWrapper?.currentAnnotation || store?.annotationStore?.selected;
       if (store?.annotationStore && (!annotation || annotation.type === "prediction")) {
@@ -281,6 +278,10 @@ DataManagerPage.context = ({ dmRef }) => {
         store.annotationStore.selectAnnotation(annotation.id);
       }
       if (annotation) {
+        if (predId && lsfWrapper) {
+          // only the annotation filled here derives from this prediction (lsf-sdk prepareData checks the id)
+          lsfWrapper.smartParentPrediction = { annotationId: annotation.id, predictionId: predId };
+        }
         const existing = annotation.serializeAnnotation() || [];
         const manualRegions = existing.filter((r) => !isModelRegion(r));
         const predLabels = new Set(predResults.map(getRegionLabel).filter(Boolean));
@@ -395,15 +396,6 @@ DataManagerPage.context = ({ dmRef }) => {
           {predicting ? "Predicting..." : "Smart Prediction"}
         </Button>
       )}
-      <Button
-        size="compact"
-        onClick={() => {
-          // dev tool: no token in the URL or bundle (set OL_TOKEN on the backend to require one)
-          window.open(`http://${window.location.hostname}:9090/dashboard`, "_blank", "noopener");
-        }}
-      >
-        ML Dashboard
-      </Button>
       {project.expert_instruction && mode !== "explorer" && (
         <Button
           size="compact"

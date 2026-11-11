@@ -972,12 +972,15 @@ export class LSFWrapper {
     const submittedTime = Number(annotation.leadTime ?? 0);
     const draftTime = Number(this.task.drafts[0]?.lead_time ?? 0);
     const lead_time = sessionTime + submittedTime + draftTime;
+    // Smart Prediction link applies only to the annotation it filled, not to others saved on the same task
+    const smart = this.smartParentPrediction;
 
     const result = {
       lead_time,
       result: (draft ? annotation.versions.draft : annotation.serializeAnnotation()) ?? [],
       draft_id: annotation.draftId,
-      parent_prediction: annotation.parent_prediction ?? this.smartParentPrediction ?? null,
+      parent_prediction:
+        annotation.parent_prediction ?? (smart?.annotationId === annotation.id ? smart.predictionId : null),
       parent_annotation: annotation.parent_annotation,
     };
 

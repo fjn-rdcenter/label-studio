@@ -341,9 +341,14 @@ class OnlineService:
                 has_ver = False
             if stats["created"] > 0 or has_ver or precompute_n == 0:
                 try:
+                    if precompute_n == 0:
+                        # no prediction of the new version yet: LS accepts it only once the backend reports it, and
+                        # listing the project's backends runs update_state (/setup) which stores ml_backend.model_version
+                        self._ls("GET", "/api/ml/", params={"project": self.s.ls_project_id})
                     self._ls("PATCH", f"/api/projects/{self.s.ls_project_id}", json={"model_version": name})
-                except Exception:
-                    pass
+                except requests.RequestException as exc:
+                    log.warning("could not set project.model_version=%s: %s", name, exc)
+                    stats["patch_failed"] = str(exc)
         except requests.RequestException as exc:
             log.warning("Label Studio sync failed: %s", exc)
             stats["failed"] = str(exc)
@@ -367,8 +372,11 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
     app.config["svc"] = svc
 
     def ops_allowed() -> bool:
-        # empty OL_TOKEN = open dev tool; header only: a ?token= query would end up in the gunicorn access log
-        return not settings.ol_token or request.headers.get("X-OL-Token") == settings.ol_token
+        # header only: a ?token= query would end up in the gunicorn access log
+        if settings.ol_token:
+            return request.headers.get("X-OL-Token") == settings.ol_token
+        # no OL_TOKEN: open only while the dev dashboard is configured on; the product runs with DASHBOARD_ENABLED=0
+        return settings.dashboard_enabled
 
     @app.get("/health")
     def health():
@@ -442,7 +450,8 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
             return jsonify(error="unauthorized"), 401
         return jsonify(svc.refresh_ls())
 
-    app.register_blueprint(create_dashboard_blueprint(svc, ops_allowed))
+    if settings.dashboard_enabled:  # dev-only tool: with DASHBOARD_ENABLED=0 it is not mounted, so nothing can switch it on
+        app.register_blueprint(create_dashboard_blueprint(svc, ops_allowed))
 
     @app.errorhandler(ValueError)
     def bad_input(err):
