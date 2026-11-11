@@ -256,3 +256,20 @@ def test_webhook_not_trusted_without_ls_token(settings, monkeypatch):
         time.sleep(0.1)
     assert "LS_TOKEN" in svc.telemetry["last_error"]
     assert svc.telemetry["episodes"] == []
+
+
+def test_missing_anchor_file_is_optional(settings, tmp_path, caplog):
+    # compose always sets ANCHOR_NPZ; an environment without anchors.npz must still boot
+    s = dataclasses.replace(settings, anchor_npz=str(tmp_path / "missing.npz"))
+    with caplog.at_level("WARNING", logger="tasdf_online"):
+        svc = app_module.OnlineService(s)
+    assert svc.anchors is None
+    assert "missing.npz" in caplog.text
+
+
+def test_startup_logs_settings_without_secrets(settings, caplog):
+    s = dataclasses.replace(settings, ls_token="ls-secret-value", ol_token="ol-secret-value")
+    with caplog.at_level("INFO", logger="tasdf_online"):
+        app_module.create_app(s, app_module.OnlineService(s))
+    assert "settings:" in caplog.text and "holdout_limit" in caplog.text
+    assert "ls-secret-value" not in caplog.text and "ol-secret-value" not in caplog.text

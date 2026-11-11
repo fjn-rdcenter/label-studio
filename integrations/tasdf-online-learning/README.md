@@ -18,6 +18,18 @@ LS lưu annotation ──/webhook (tự tạo khi thêm backend)──> queue (t
 
 ## Cấu hình (env)
 
+Khi chạy bằng Docker, mỗi biến chỉ có **một** nơi đặt:
+
+| Tầng | Đặt ở đâu | Biến |
+|---|---|---|
+| Đường dẫn trong container | `environment:` của `docker-compose.tasdf.yml` (cố định, ghi đè `tasdf.env`) | `LS_URL`, `STATE_DIR`, `BASELINE_CKPT`, `HOLDOUT_NPZ`, `ANCHOR_NPZ` |
+| Thông số theo môi trường | `.env` ở thư mục gốc repo hoặc `docker compose --env-file <file>`. Mẫu: [`compose.env.example`](compose.env.example) | `TASDF_DATA_DIR`, `TASDF_UID`/`TASDF_GID`, `TASDF_PUBLISH`, `TASDF_DEVICE`, `TASDF_TORCH_THREADS`, `TASDF_EPISODE_EPOCHS`, `TASDF_HOLDOUT_LIMIT`, `TASDF_DASHBOARD`, `TASDF_TORCH_INDEX_URL` |
+| Secret và các tham số app còn lại | `${TASDF_DATA_DIR}/tasdf.env`, không commit. Mẫu: [`tasdf.env.example`](tasdf.env.example) | `LS_TOKEN`, `LS_PROJECT_ID`, `OL_TOKEN`, `MIN_QUALITY_LEVEL`, `REFRESH_NEXT_N`, … |
+
+Lưu ý:
+- Biến thuộc hai tầng trên mà đặt trong `tasdf.env` sẽ **bị bỏ qua mà không báo lỗi**. Ví dụ: `DASHBOARD_ENABLED=0` đặt trong `tasdf.env` không tắt được dashboard, phải dùng `TASDF_DASHBOARD=0`.
+- Lúc khởi động, backend log dòng `settings: {...}` (đã bỏ token) ra `docker logs`. Đó là giá trị thực tế đang dùng.
+
 | Biến | Mặc định | Ghi chú |
 |---|---|---|
 | `DEVICE` | `auto` | `cpu` / `cuda` / `cuda:N`. Nếu đặt `cuda` mà máy không có GPU thì service dừng ngay khi khởi động |
@@ -26,7 +38,7 @@ LS lưu annotation ──/webhook (tự tạo khi thêm backend)──> queue (t
 | `BASELINE_CKPT` | — | `best.pt` của M2-B (checkpoint đầy đủ hoặc state_dict). Bỏ trống thì dùng model ngẫu nhiên, chỉ để test |
 | `BASE_CHANNELS` / `EROSION` | 64 / `cross` | Phải khớp với checkpoint |
 | `HOLDOUT_NPZ` / `HOLDOUT_LIMIT` | — / 0 | Tập dùng cho cổng chống quên. 0 = dùng toàn bộ. Thiếu holdout thì mọi candidate đều bị từ chối |
-| `ANCHOR_NPZ` | — | Mẫu neo cho replay khi chưa có đủ mẫu đã duyệt. Compose không đặt sẵn: file phải tồn tại (service dừng nếu không đọc được), nên chỉ đặt trong `.data/tasdf-online/tasdf.env` sau khi đã export `anchors.npz` |
+| `ANCHOR_NPZ` | — | Mẫu neo cho replay khi chưa có đủ mẫu đã duyệt. Tuỳ chọn. Compose đặt sẵn `/data/tasdf-online/anchors.npz`, nên chỉ cần đặt file vào `TASDF_DATA_DIR` (export bằng `scripts/export_npz.py`). Thiếu file thì backend log cảnh báo và chạy không có anchor. `BASELINE_CKPT` và `HOLDOUT_NPZ` thì khác: đã đặt mà thiếu file là service dừng |
 | `EPISODE_EPOCHS` / `REPLAY_SIZE` / `LR` / `EMA_ALPHA` / `CORR_BETA` / `TOPO_SUP_WEIGHT` | 3 / 4 / 1e-4 / 0.65 / 0.5 / 0.1 | Tham số của một episode |
 | `STATE_DIR` | `/data/tasdf-online` | Nơi lưu `registry.json` và `versions/vN.pt` cho từng project |
 | `LS_URL`, `LS_TOKEN`, `LS_PROJECT_ID` | — | `LS_TOKEN` phải là token của user có role **Manager trong project**. Org Admin chỉ có quyền đọc trong fork này |
@@ -43,19 +55,30 @@ python scripts/export_npz.py --tasdf-repo <tasdf-audit> --run-json <run.json> --
 
 ## Chạy
 
-**CPU** (cùng docker network với LS). Đặt các file `baseline.pt`, `holdout.npz` và `tasdf.env` vào thư mục `.data/tasdf-online/`:
+**CPU** (cùng docker network với LS):
 
 ```bash
+cp integrations/tasdf-online-learning/compose.env.example .env      # sửa theo môi trường (khối cuối file)
+mkdir -p .data/tasdf-online                                          # = TASDF_DATA_DIR; compose không tự tạo
+cp integrations/tasdf-online-learning/tasdf.env.example .data/tasdf-online/tasdf.env   # điền token
+# đặt baseline.pt, holdout.npz (và anchors.npz nếu có) vào .data/tasdf-online/
 docker compose -f docker-compose.yml -f docker-compose.tasdf.yml up -d --build
 ```
 
-**GPU** (cần NVIDIA Container Toolkit):
+Container chạy với `TASDF_UID:TASDF_GID` (mặc định 1000:1000), và user này phải ghi được `TASDF_DATA_DIR`:
+- Linux: đặt bằng `id -u` / `id -g`. Không dùng biến `UID` của shell, vì bash không export nó và cũng không cho gán lại.
+- Rootless Docker: đặt `0`.
+- Docker Desktop: giá trị nào cũng được.
+
+Nếu cấu hình sai, `docker logs` sẽ báo `PermissionError ... registry.json.tmp`.
+
+**GPU** (cần NVIDIA Container Toolkit). Trong `.env` đặt `TASDF_EPISODE_EPOCHS=3`, `TASDF_HOLDOUT_LIMIT=0`, và `TASDF_DEVICE=cuda:N` nếu cần chọn GPU:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.tasdf.yml -f docker-compose.tasdf-gpu.yml up -d --build
 ```
 
-**Không dùng Docker** (ví dụ trên GPU server):
+**Không dùng Docker** (ví dụ trên GPU server). Dùng đường dẫn trên host. Không dùng lại `tasdf.env` của Docker: một file env chung cho cả hai cách chạy đã từng làm đường dẫn host lọt vào container.
 
 ```bash
 DEVICE=cuda BASELINE_CKPT=... HOLDOUT_NPZ=... LS_URL=... LS_TOKEN=... LS_PROJECT_ID=... OL_TOKEN=... python -m tasdf_online.app

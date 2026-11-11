@@ -6,6 +6,7 @@ Ops (header X-OL-Token): /telemetry/live, /rollback, /refresh_ls_predictions.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import hashlib
 import json
 import logging
@@ -87,7 +88,12 @@ class OnlineService:
         })
         self.teacher = self._load(self.registry.active)
         self.holdout = _load_npz(s.holdout_npz, s.holdout_limit)
-        self.anchors = _load_npz(s.anchor_npz)
+        if s.anchor_npz and not os.path.exists(s.anchor_npz):
+            # anchors are optional (compose always sets the path): replay just draws from reviewed samples
+            log.warning("ANCHOR_NPZ=%s not found: running without anchor replay", s.anchor_npz)
+            self.anchors = None
+        else:
+            self.anchors = _load_npz(s.anchor_npz)
         self.replay: deque = deque(maxlen=64)
         self.label = parse_label_config(None)
         self.lock = threading.RLock()
@@ -363,6 +369,9 @@ class OnlineService:
 
 def create_app(settings: Settings | None = None, service: OnlineService | None = None) -> Flask:
     settings = settings or Settings.from_env()
+    # gunicorn configures only its own loggers: without this, INFO logs of tasdf_online are dropped in Docker
+    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    log.info("settings: %s", {k: v for k, v in dataclasses.asdict(settings).items() if k not in ("ls_token", "ol_token")})
     svc = service
     if svc is None:
         svc = OnlineService(settings)
@@ -461,6 +470,5 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     application = create_app()
     application.run(host="0.0.0.0", port=int(os.getenv("PORT", "9090")), threaded=True)

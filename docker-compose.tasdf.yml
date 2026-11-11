@@ -1,36 +1,46 @@
 # TASDF online-learning ML backend (CPU). Overlay on docker-compose.yml:
 #   docker compose -f docker-compose.yml -f docker-compose.tasdf.yml up -d --build
 # GPU: add -f docker-compose.tasdf-gpu.yml
-# Put secrets (LS_TOKEN of a project Manager, LS_PROJECT_ID, OL_TOKEN) in .data/tasdf-online/tasdf.env
+# Where each setting goes (see integrations/tasdf-online-learning/README.md):
+#   - per-environment knobs TASDF_* -> repo-root .env (template: integrations/tasdf-online-learning/compose.env.example)
+#   - secrets + other app vars -> ${TASDF_DATA_DIR}/tasdf.env (template: integrations/tasdf-online-learning/tasdf.env.example)
+#   - container paths and LS_URL below are fixed: they win over tasdf.env, so host paths there cannot leak in
 services:
   tasdf-online:
     build:
       context: ./integrations/tasdf-online-learning
       args:
         TORCH_INDEX_URL: ${TASDF_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
-    user: "${UID:-1000}:${GID:-1000}"
+    # must own TASDF_DATA_DIR on the host (bash's UID is readonly and not exported, hence TASDF_UID)
+    user: "${TASDF_UID:-1000}:${TASDF_GID:-1000}"
     restart: unless-stopped
     depends_on:
       - webapp
     env_file:
-      - path: ./.data/tasdf-online/tasdf.env
+      - path: ${TASDF_DATA_DIR:-./.data/tasdf-online}/tasdf.env
         required: false
     environment:
-      DEVICE: ${TASDF_DEVICE:-cpu}
-      TORCH_THREADS: ${TASDF_TORCH_THREADS:-4}
       LS_URL: http://webapp:8080
       STATE_DIR: /data/tasdf-online/state
       BASELINE_CKPT: /data/tasdf-online/baseline.pt
       HOLDOUT_NPZ: /data/tasdf-online/holdout.npz
-      ANCHOR_NPZ: /data/tasdf-online/anchors.npz
+      ANCHOR_NPZ: /data/tasdf-online/anchors.npz  # optional: a missing file only logs a warning
+      DEVICE: ${TASDF_DEVICE:-cpu}
+      TORCH_THREADS: ${TASDF_TORCH_THREADS:-4}
       # CPU-friendly defaults; raise on GPU
       EPISODE_EPOCHS: ${TASDF_EPISODE_EPOCHS:-1}
       HOLDOUT_LIMIT: ${TASDF_HOLDOUT_LIMIT:-8}
       DASHBOARD_ENABLED: ${TASDF_DASHBOARD:-1}
-    # published for the dev dashboard (product: TASDF_DASHBOARD=0); /setup /predict /webhook have no auth: trusted network only
+    # published for the dev dashboard (product: TASDF_DASHBOARD=0, TASDF_PUBLISH=127.0.0.1:9090);
+    # /setup /predict /webhook have no auth: trusted network only
     ports:
-      - "9090:9090"
+      - "${TASDF_PUBLISH:-9090}:9090"
     expose:
       - "9090"
     volumes:
-      - .data/tasdf-online:/data/tasdf-online
+      - type: bind
+        source: ${TASDF_DATA_DIR:-./.data/tasdf-online}
+        target: /data/tasdf-online
+        bind:
+          # a missing dir would be created root-owned and fail later with PermissionError; fail here instead
+          create_host_path: false
