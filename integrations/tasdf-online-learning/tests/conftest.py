@@ -33,5 +33,5 @@ def settings(tmp_path):
     return dataclasses.replace(
         Settings.from_env(), device="cpu", base_channels=8, state_dir=str(tmp_path / "state"), baseline_ckpt="",
         holdout_npz=str(tmp_path / "holdout.npz"), anchor_npz="", ls_url="", ls_token="", ls_project_id=7,
-        ol_token="secret", min_quality_level=2, episode_epochs=1, replay_size=1, amp="0",
+        ol_token="secret", min_quality_level=2, train_steps=2, eval_every=1, train_every_n=1, amp="0",
     )

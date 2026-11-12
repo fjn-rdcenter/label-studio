@@ -1,22 +1,19 @@
 """TASDF online-learning ML backend for Label Studio.
 
-LS protocol: /health, /setup, /validate, /predict, /webhook (see label_studio/ml/api_connector.py).
+LS protocol: /health, /setup, /validate, /predict, /webhook, /train (see label_studio/ml/api_connector.py).
 Ops (header X-OL-Token): /telemetry/live, /rollback, /refresh_ls_predictions.
+Training is batch retraining on all reviewed annotations (trainer.py), run on N new ones or on /train.
 """
 from __future__ import annotations
 
-import copy
 import dataclasses
 import hashlib
-import json
 import logging
 import os
-import queue
-import random
 import re
 import threading
 import time
-from collections import OrderedDict, deque
+import uuid
 
 import numpy as np
 import requests
@@ -24,15 +21,15 @@ import torch
 from defusedxml import ElementTree
 from flask import Flask, jsonify, request
 
-from . import __version__, learner
+from . import __version__, learner, trainer
 from .config import Settings, resolve_device
-from .dashboard import create_dashboard_blueprint, render_visuals
-from .ls_format import CLASS_NAMES, NAME_TO_CLASS, bio_valid, fetch_image, mask_to_results, results_to_mask
+from .dashboard import create_dashboard_blueprint
+from .ls_format import CLASS_NAMES, NAME_TO_CLASS, fetch_image, mask_to_results
 from .registry import Registry
 
 log = logging.getLogger("tasdf_online")
 TRAIN_ACTIONS = {"ANNOTATION_CREATED", "ANNOTATION_UPDATED"}
-MAX_CACHED_MASKS = 512  # 256x256 uint8 each -> ~32 MB
+SMALL_VAL_TOLERANCE = 0.01  # project-val too small to demand a gain: only refuse a clear drop
 
 
 def parse_label_config(xml: str | None) -> tuple[str, str, str, dict]:
@@ -93,29 +90,24 @@ class OnlineService:
         self.teacher = self._load(self.registry.active)
         self.holdout = _load_npz(s.holdout_npz, s.holdout_limit)
         if s.anchor_npz and not os.path.exists(s.anchor_npz):
-            # anchors are optional (compose always sets the path): replay just draws from reviewed samples
-            log.warning("ANCHOR_NPZ=%s not found: running without anchor replay", s.anchor_npz)
+            # anchors are optional (compose always sets the path): training then uses project samples only
+            log.warning("ANCHOR_NPZ=%s not found: training without anchors", s.anchor_npz)
             self.anchors = None
         else:
             self.anchors = _load_npz(s.anchor_npz)
-        self.replay: deque = deque(maxlen=64)
+            if self.anchors is not None:
+                self.anchors = (self.anchors[0], self.anchors[1].astype(np.int64))
         self.label = parse_label_config(None)
         self.lock = threading.RLock()
-        self.qlock = threading.Lock()
+        self.train_lock = threading.Lock()
         self.refresh_lock = threading.Lock()
-        self.queue: queue.Queue = queue.Queue()
-        self.pending: dict = {}
-        self.seen: dict = {}
-        # shortcut: LRU of recent predictions only; older tasks fall back to parent_prediction / teacher
-        self.last_predicted_mask: OrderedDict[int, np.ndarray] = OrderedDict()
         self.dashboard_enabled: bool = s.dashboard_enabled
-        self.telemetry: dict = {"status": "idle", "episodes": [], "next_task_dice": []}
+        self.telemetry: dict = {"status": "idle", "jobs": []}
         if self.holdout is not None and (holdout_changed or "metrics" not in self.registry.info("v0")):
             # the gate compares against v0 and the active version: both must be measured on this holdout
             self.registry.record("v0", metrics=learner.evaluate(self._load("v0"), *self.holdout))
             if self.registry.active != "v0":
                 self.registry.record(self.registry.active, metrics=learner.evaluate(self.teacher, *self.holdout))
-        threading.Thread(target=self._worker, daemon=True, name="tasdf-online-worker").start()
 
     # ---- model -------------------------------------------------------------------------------
     def _load(self, version: str):
@@ -138,159 +130,123 @@ class OnlineService:
             probs, _ = learner.predict_probs(self.teacher, torch.from_numpy(img)[None, None])
             version = self.model_version
         conf, mask = probs[0].max(0)
-        mask = mask.numpy().astype(np.uint8)
-        if task.get("id") is not None:
-            with self.qlock:
-                self.last_predicted_mask[int(task["id"])] = mask.copy()
-                self.last_predicted_mask.move_to_end(int(task["id"]))
-                while len(self.last_predicted_mask) > MAX_CACHED_MASKS:
-                    self.last_predicted_mask.popitem(last=False)
-        fg = mask > 0
+        fg = mask.numpy() > 0
         score = float(conf[torch.from_numpy(fg)].mean()) if fg.any() else 0.0
         # polygons are traced at the original resolution: tracing the 256 map and scaling it up gives staircase edges
         full = torch.nn.functional.interpolate(probs[:1].float(), size=(h, w), mode="bilinear", align_corners=False)
         result = mask_to_results(full[0].argmax(0).numpy().astype(np.uint8), w, h, label[0], label[1], label[3])
         return {"result": result, "score": score, "model_version": version}
 
-    # ---- webhook / training ------------------------------------------------------------------
-    def _skip_reason(self, ann: dict, project_id) -> str | None:
-        if self.s.ls_project_id and project_id != self.s.ls_project_id:
-            return "ignored-project"
-        if ann.get("was_cancelled") or not ann.get("result"):
-            return "ignored-empty"
-        if int(ann.get("quality_level") or 1) < self.s.min_quality_level:
-            return "ignored-quality"
-        if not bio_valid(results_to_mask(ann["result"], self.label[0])):
-            return "ignored-invalid-mask"
-        return None
-
-    @staticmethod
-    def _digest(ann: dict) -> str:
-        geom = [{k: v for k, v in r.items() if k != "id"} for r in ann["result"] if isinstance(r, dict)]
-        return hashlib.sha1(json.dumps(geom, sort_keys=True).encode()).hexdigest()
-
-    def enqueue(self, payload: dict) -> str:
+    # ---- training ------------------------------------------------------------------------------
+    def on_webhook(self, payload: dict) -> str:
+        """A webhook is only a hint: the job re-reads every annotation from LS before using it."""
         if payload.get("action") not in TRAIN_ACTIONS:
             return "ignored-action"
-        ann, task = payload.get("annotation") or {}, payload.get("task") or {}
-        if not isinstance(ann.get("id"), int):
-            return "ignored-invalid-id"
-        reason = self._skip_reason(ann, (payload.get("project") or {}).get("id"))
-        if reason:
-            return reason
-        digest = self._digest(ann)
-        if self.seen.get(ann["id"]) == digest:
-            return "ignored-unchanged"
-        with self.qlock:
-            first = ann["id"] not in self.pending
-            self.pending[ann["id"]] = (ann, task)  # coalesce: keep the latest version only
-            if first:
-                self.queue.put(ann["id"])
-        return "queued"
+        if self.s.ls_project_id and (payload.get("project") or {}).get("id") != self.s.ls_project_id:
+            return "ignored-project"
+        return self.start_job(force=False)
 
-    def _from_ls(self, ann_id: int) -> tuple[dict, dict]:
-        """The webhook is only a notification: re-read annotation and task from LS so a forged
-        payload cannot inject labels, a quality level or another image."""
-        if not self.s.ls_token:  # fail closed: never fall back to training on the unauthenticated payload
-            raise RuntimeError("LS_TOKEN is not set: cannot verify the webhook against Label Studio")
-        ann = self._ls("GET", f"/api/annotations/{ann_id}").json()
-        task = self._ls("GET", f"/api/tasks/{int(ann['task'])}").json()
-        return ann, task
+    def start_job(self, force: bool) -> str:
+        if not self.train_lock.acquire(blocking=False):
+            return "running"
+        job_id = uuid.uuid4().hex[:12]
 
-    def _worker(self):
-        while True:
-            ann_id = self.queue.get()
-            with self.qlock:
-                ann, task = self.pending.pop(ann_id)
-            self.telemetry["status"] = f"training annotation {ann_id}"
+        def run():
             try:
-                if self.s.ls_url:  # offline tests (no LS) train on the payload as-is
-                    ann, task = self._from_ls(ann_id)
-                    reason = self._skip_reason(ann, ann.get("project"))
-                    if reason:
-                        self.telemetry["last_skipped"] = {"annotation_id": ann_id, "reason": reason}
-                        continue
-                self._episode(ann, task)
-                self.seen[ann_id] = self._digest(ann)
-                if len(self.seen) > 10_000:
-                    self.seen.pop(next(iter(self.seen)))
-            except Exception as exc:  # keep the worker alive; surface the error in telemetry
-                log.exception("episode failed for annotation %s", ann_id)
-                self.telemetry["last_error"] = f"{type(exc).__name__}: {exc}"
+                self.run_job(force, job_id)
             finally:
-                self.telemetry["status"] = "idle"
-                if self.device.type == "cuda":
-                    torch.cuda.empty_cache()
+                self.train_lock.release()
 
-    def _initial_prediction(self, ann: dict, task_id: int | None = None):
-        with self.qlock:  # consumed once: the task is being trained on now
-            cached = self.last_predicted_mask.pop(int(task_id), None) if task_id is not None else None
-        pid = ann.get("parent_prediction")
-        if pid and self.s.ls_url:
-            try:
-                resp = requests.get(f"{self.s.ls_url}/api/predictions/{pid}", headers=self._auth(), timeout=self.s.request_timeout)
-                resp.raise_for_status()
-                return results_to_mask(resp.json().get("result") or [], self.label[0])
-            except requests.RequestException as exc:
-                log.warning("could not fetch parent_prediction %s: %s", pid, exc)
-        return cached
+        threading.Thread(target=run, daemon=True, name=f"tasdf-train-{job_id}").start()
+        return job_id
 
-    def _episode(self, ann: dict, task: dict):
+    def _samples(self) -> list[dict]:
+        if not (self.s.ls_url and self.s.ls_token and self.s.ls_project_id):
+            # fail closed: never train on anything that was not re-read from LS with our own token
+            raise RuntimeError("LS_URL/LS_TOKEN/LS_PROJECT_ID must be set to train")
+        return trainer.select_samples(list(self._project_tasks()), self.s.ls_project_id, self.label[0],
+                                      self.s.min_quality_level)
+
+    def _tensors(self, samples: list[dict]) -> tuple[torch.Tensor, list[np.ndarray]]:
+        imgs = [self._image(d["task"])[0] for d in samples]
+        x = torch.from_numpy(np.stack(imgs)).unsqueeze(1) if imgs else torch.zeros((0, 1, 256, 256))
+        return x, [d["y"] for d in samples]
+
+    def run_job(self, force: bool, job_id: str = "") -> dict | None:
+        """Retrain from v0 on every reviewed train-split annotation; promote only if measured not worse."""
         t0 = time.time()
-        img, _, _ = self._image(task)
-        y = results_to_mask(ann["result"], self.label[0])
-        p_init = self._initial_prediction(ann, task.get("id"))  # what the annotator actually saw, not today's model
-        record = {"annotation_id": ann.get("id"), "task_id": task.get("id"), "at": t0}
-        if p_init is not None:
-            record["next_task_dice"] = learner.mean_dice(p_init, y)[0]
-            self.telemetry["next_task_dice"] = (self.telemetry["next_task_dice"] + [
-                {"task_id": task.get("id"), "dice": record["next_task_dice"]}])[-500:]
+        try:
+            self.telemetry["status"] = f"job {job_id}: collecting"
+            samples = self._samples()
+            train = [d for d in samples if d["split"] == "train"]
+            val = [d for d in samples if d["split"] == "val"]
+            last = (self.registry.data.get("last_job") or {}).get("digests", {})
+            new = [d for d in train if last.get(str(d["task_id"])) != d["digest"]]
+            self.telemetry["pending"] = {"new_train": len(new), "train": len(train), "val": len(val),
+                                         "threshold": self.s.train_every_n}
+            if not train or (not force and len(new) < self.s.train_every_n):
+                return None
+            self.telemetry["status"] = f"job {job_id}: training on {len(train)} (+{len(val)} val)"
+            x, ys = self._tensors(train)
+            vx, vys = self._tensors(val)
+            y = torch.from_numpy(np.stack(ys).astype(np.int64))
+            parent, active = self.registry.active, self.teacher
+            base = self._load("v0")
+            use_project = len(val) >= self.s.project_val_min
 
-        teacher, parent = self.teacher, self.registry.active
-        x = torch.from_numpy(img)[None, None]
-        before, _ = learner.predict_probs(teacher, x)
-        ref_mask = p_init if p_init is not None else before[0].argmax(0).numpy()
-        w_new = 1.0 + self.s.corr_beta * torch.from_numpy((ref_mask != y).astype(np.float32))
-        xs, ys, ws = [x], [torch.from_numpy(y.astype(np.int64))[None]], [w_new[None]]
-        replay = random.sample(list(self.replay), min(self.s.replay_size, len(self.replay)))
-        if self.anchors is not None and len(replay) < self.s.replay_size:
-            idx = random.sample(range(len(self.anchors[0])), min(self.s.replay_size - len(replay), len(self.anchors[0])))
-            replay += [(self.anchors[0][i:i + 1], torch.from_numpy(self.anchors[1][i:i + 1])) for i in idx]
-        for rx, ry in replay:
-            xs.append(rx); ys.append(ry); ws.append(torch.ones(ry.shape))
+            def score(model):
+                if use_project or self.holdout is None:
+                    return trainer.project_dice(model, vx, vys) or 0.0
+                return learner.evaluate(model, *self.holdout)["pooled_mDice"]
 
-        cand, losses = learner.run_episode(
-            teacher, torch.cat(xs), torch.cat(ys), torch.cat(ws), epochs=self.s.episode_epochs, lr=self.s.lr,
-            ema_alpha=self.s.ema_alpha, topo_sup_weight=self.s.topo_sup_weight, erosion=self.s.erosion, amp=self.amp)
-        after, topo_after = learner.predict_probs(cand, x)
-        shifts = learner.layer_shifts(teacher, cand, self.base_state)
-        frozen_ok = shifts["encoder_frozen"]["l2_shift"] == 0.0 and shifts["decoder_frozen"]["l2_shift"] == 0.0
-        record.update(losses=losses, local_probe=learner.local_probe(before[0], after[0], y), layer_shifts=shifts,
-                      frozen_unchanged=frozen_ok)
-        if self.dashboard_enabled:
-            self.telemetry["last_visuals"] = render_visuals(img, ref_mask, before[0], after[0], topo_after[0], y)
-
-        accepted, reasons = False, ["no holdout configured"]
-        if self.holdout is not None and frozen_ok:
-            record["metrics"] = learner.evaluate(cand, *self.holdout)
-            accepted, reasons = learner.gate(record["metrics"], self.registry.info(parent)["metrics"],
-                                             self.registry.info("v0")["metrics"])
-        elif not frozen_ok:
-            reasons = ["frozen weights changed"]
-        with self.lock:
-            if self.registry.active != parent:  # a rollback happened meanwhile; candidate is stale
-                accepted, reasons = False, [f"active changed {parent}->{self.registry.active} during episode"]
-            record.update(gate_reasons=reasons, seconds=round(time.time() - t0, 2))
-            version = self.registry.add(learner.trainable_state(cand), record, accepted)
+            cand, history = trainer.train(base, x, y, self.anchors, steps=self.s.train_steps, lr=self.s.lr,
+                                          eval_every=self.s.eval_every, score_fn=score, amp=self.amp)
+            shifts = learner.layer_shifts(base, cand, self.base_state)
+            reasons = []
+            if shifts["encoder_frozen"]["l2_shift"] or shifts["decoder_frozen"]["l2_shift"]:
+                reasons.append("frozen weights changed")
+            record = {"kind": "batch", "job_id": job_id, "train_tasks": [d["task_id"] for d in train],
+                      "val_tasks": [d["task_id"] for d in val], "new_train": len(new), "history": history[-50:],
+                      "layer_shifts": shifts}
+            if self.holdout is not None:
+                record["metrics"] = learner.evaluate(cand, *self.holdout)
+                ok, gate_reasons = learner.gate(record["metrics"], learner.evaluate(active, *self.holdout),
+                                                self.registry.info("v0")["metrics"])
+                reasons += gate_reasons
+            pv_cand, pv_active = trainer.project_dice(cand, vx, vys), trainer.project_dice(active, vx, vys)
+            record.update(project_val_dice=pv_cand, active_project_val_dice=pv_active)
+            if pv_cand is not None and pv_active is not None:
+                if use_project and pv_cand < pv_active + self.s.promote_min_gain:
+                    reasons.append(f"project-val {pv_cand:.4f} < active {pv_active:.4f} + {self.s.promote_min_gain}")
+                elif not use_project and pv_cand < pv_active - SMALL_VAL_TOLERANCE:
+                    reasons.append(f"project-val {pv_cand:.4f} dropped vs active {pv_active:.4f}")
+            if not use_project:
+                record["note"] = f"insufficient_project_val ({len(val)} < {self.s.project_val_min})"
+            with self.lock:
+                if self.registry.active != parent:  # a rollback happened meanwhile; candidate is stale
+                    reasons.append(f"active changed {parent}->{self.registry.active} during job")
+                accepted = not reasons
+                record.update(gate_reasons=reasons, seconds=round(time.time() - t0, 1))
+                version = self.registry.add(learner.trainable_state(cand), record, accepted)
+                if accepted:
+                    self.teacher = cand
+            # completed (accepted or not): these samples no longer count as new
+            self.registry.set_meta("last_job", {"digests": {str(d["task_id"]): d["digest"] for d in train},
+                                                "version": version, "at": t0})
+            record.update(version=version, accepted=accepted)
+            self.telemetry["jobs"] = (self.telemetry["jobs"] + [record])[-20:]
+            log.info("job %s -> %s accepted=%s reasons=%s (%.1fs)", job_id, version, accepted, reasons, time.time() - t0)
             if accepted:
-                self.teacher = cand
-        if accepted:
-            self.replay.append((x, ys[0]))
-        record["version"], record["accepted"] = version, accepted
-        self.telemetry["episodes"] = (self.telemetry["episodes"] + [record])[-20:]
-        log.info("episode %s accepted=%s reasons=%s (%.1fs)", version, accepted, reasons, time.time() - t0)
-        if accepted:
-            self.refresh_ls()
+                self.refresh_ls()
+            return record
+        except Exception as exc:  # keep the service alive; surface the error in telemetry
+            log.exception("training job %s failed", job_id)
+            self.telemetry["last_error"] = f"{type(exc).__name__}: {exc}"
+            return None
+        finally:
+            self.telemetry["status"] = "idle"
+            if self.device.type == "cuda":
+                torch.cuda.empty_cache()
 
     # ---- Label Studio sync ------------------------------------------------------------------
     def _auth(self) -> dict:
@@ -431,7 +387,15 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
 
     @app.post("/webhook")
     def webhook():
-        return jsonify(status=svc.enqueue(request.get_json(silent=True) or {}))
+        return jsonify(status=svc.on_webhook(request.get_json(silent=True) or {}))
+
+    @app.post("/train")
+    def train():
+        # same trust level as /webhook (LS "Start Training" sends no X-OL-Token); data is re-read from LS anyway
+        job = svc.start_job(force=True)
+        if job == "running":
+            return jsonify(status="running"), 409
+        return jsonify(job_id=job, status="started")
 
     @app.get("/versions")
     def versions():
@@ -441,9 +405,10 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
     def telemetry():
         if not ops_allowed():
             return jsonify(error="unauthorized"), 401
-        versions = {v: {k: i.get(k) for k in ("status", "parent", "metrics", "gate_reasons", "next_task_dice", "created")}
+        versions = {v: {k: i.get(k) for k in ("status", "parent", "metrics", "gate_reasons", "project_val_dice",
+                                              "note", "created")}
                     for v, i in svc.registry.data["versions"].items()}
-        return jsonify(active=svc.model_version, device=str(svc.device), queue=svc.queue.qsize(),
+        return jsonify(active=svc.model_version, device=str(svc.device), training=svc.train_lock.locked(),
                        dashboard_enabled=svc.dashboard_enabled, version_history=versions, **svc.telemetry)
 
     @app.post("/rollback")

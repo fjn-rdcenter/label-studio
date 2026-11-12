@@ -83,6 +83,11 @@ class Registry:
                 raise KeyError(f"{version} has unknown tensors: {sorted(missing)[:3]}")
             model.load_state_dict(overlay, strict=False)
 
+    def set_meta(self, key: str, value) -> None:
+        """Top-level bookkeeping that must survive restarts (e.g. last_job digests)."""
+        self.data[key] = value
+        self._save()
+
     def rollback(self, version: str) -> None:
         if version != "v0" and not (self.root / "versions" / f"{version}.pt").exists():
             raise FileNotFoundError(f"no stored weights for {version}")

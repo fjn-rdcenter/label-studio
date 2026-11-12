@@ -28,7 +28,6 @@ services:
       DEVICE: ${TASDF_DEVICE:-cpu}
       TORCH_THREADS: ${TASDF_TORCH_THREADS:-4}
       # CPU-friendly defaults; raise on GPU
-      EPISODE_EPOCHS: ${TASDF_EPISODE_EPOCHS:-1}
       HOLDOUT_LIMIT: ${TASDF_HOLDOUT_LIMIT:-8}
       DASHBOARD_ENABLED: ${TASDF_DASHBOARD:-1}
     # published for the dev dashboard (product: TASDF_DASHBOARD=0, TASDF_PUBLISH=127.0.0.1:9090);

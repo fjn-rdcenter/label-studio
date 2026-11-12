@@ -146,3 +146,51 @@ def test_polygon_stays_within_tolerance_with_few_vertices():
     worst = max(abs(cv2.pointPolygonTest(poly.reshape(-1, 1, 2), (float(x), float(y)), True)) for x, y in contour[::5])
     assert worst <= SIMPLIFY_TOL_PX + 0.1  # +0.1: percentages are rounded to 3 decimals
     assert len(poly) < len(contour) / 20
+
+
+def _poly(label, pts, holes=None):
+    v = {"points": pts, "closed": True, "polygonlabels": [label]}
+    if holes:
+        v.update(ring=True, holes=[holes])
+    return {"type": "polygonlabels", "from_name": "seg", "value": v}
+
+
+SQ = lambda a, b: [[a, a], [b, a], [b, b], [a, b]]  # noqa: E731
+
+
+def test_annotation_target_ignores_unlabelled_pixels_inside_the_embryo():
+    from tasdf_online.ls_format import IGNORE, annotation_target
+
+    zp = _poly("ZP", SQ(10, 90), holes=SQ(20, 80))
+    bc = _poly("BC", SQ(40, 60))
+    y = annotation_target([zp, bc], "seg")
+    assert y[5, 5] == 0                      # outside the ZP: real background
+    assert y[128, 128] == BC                 # drawn
+    assert y[int(2.56 * 15), 128] == ZP      # ZP ring
+    assert y[int(2.56 * 30), 128] == IGNORE  # inside the ZP, not drawn (TE/ICM skipped by the annotator)
+
+
+def test_annotation_target_without_zp_ignores_every_undrawn_pixel():
+    from tasdf_online.ls_format import IGNORE, annotation_target
+
+    y = annotation_target([_poly("BC", SQ(40, 60))], "seg")
+    assert y[128, 128] == BC and y[5, 5] == IGNORE
+
+
+def test_annotation_target_drops_rectangles_and_keypoints():
+    from tasdf_online.ls_format import IGNORE, annotation_target
+
+    rect = {"type": "rectanglelabels", "from_name": "rect", "value": {"x": 0, "y": 0, "width": 100, "height": 100, "rectanglelabels": ["ZP"]}}
+    kp = {"type": "keypointlabels", "from_name": "kp", "value": {"x": 50, "y": 50, "keypointlabels": ["ICM"]}}
+    y = annotation_target([rect, kp, _poly("ICM", SQ(45, 55))], "seg")
+    assert set(np.unique(y)) == {ICM, IGNORE}
+
+
+def test_annotation_target_closes_brush_zp_ring():
+    from tasdf_online.ls_format import IGNORE, annotation_target
+
+    full = blastocyst_mask()
+    ring_only = np.where(full == ZP, ZP, 0).astype(np.uint8)  # brush ring: ZP only, interior undrawn
+    results = [r for r in mask_to_results(ring_only, 256, 256, "seg", "image")]
+    y = annotation_target(results, "seg")
+    assert y[128, 128] == IGNORE and y[0, 0] == 0

@@ -7,6 +7,7 @@ import torch
 from conftest import blastocyst_mask
 
 from tasdf_online import app as app_module
+from tasdf_online import trainer
 from tasdf_online.ls_format import mask_to_results
 
 AUTH = {"X-OL-Token": "secret"}
@@ -35,34 +36,6 @@ def test_health_setup_predict(client):
     assert res["model_version"] == "tasdf-v0" and isinstance(res["result"], list) and 0.0 <= res["score"] <= 1.0
     assert all(r["from_name"] == "p" and r["to_name"] == "img" for r in res["result"])
     assert client.post("/predict", json={"tasks": []}).status_code == 400
-
-
-def test_webhook_fast_filters_and_trains(client):
-    event = _event()  # built outside the timed span: it rasterises polygons, the webhook itself must stay fast
-    t0 = time.perf_counter()
-    assert client.post("/webhook", json=event).get_json()["status"] == "queued"
-    assert (time.perf_counter() - t0) < 0.05
-    assert client.post("/webhook", json=_event(quality=1, ann_id=12)).get_json()["status"] == "ignored-quality"
-    assert client.post("/webhook", json={"action": "TASKS_CREATED"}).get_json()["status"] == "ignored-action"
-    assert client.post("/webhook", json={**_event(ann_id=13), "project": {"id": 99}}).get_json()["status"] == "ignored-project"
-
-    assert client.get("/telemetry/live").status_code == 401
-    deadline = time.time() + 120
-    while time.time() < deadline:
-        tel = client.get("/telemetry/live", headers=AUTH).get_json()
-        if tel["episodes"] or tel.get("last_error"):
-            break
-        time.sleep(0.5)
-    assert "last_error" not in tel, tel.get("last_error")
-    (ep,) = tel["episodes"]
-    assert ep["frozen_unchanged"] and "metrics" in ep and ep["version"] == "v1"
-    assert ep["layer_shifts"]["pixel_head"]["l2_shift"] > 0
-    assert "input_overlay" in tel["last_visuals"] and tel["last_visuals"]["input_overlay"].startswith("data:image/png;base64,")
-    # same result again is not retrained
-    assert client.post("/webhook", json=_event()).get_json()["status"] == "ignored-unchanged"
-    # degenerate (empty or saturated >=95%) mask is rejected by bio_valid gate
-    sat = [{"type": "polygonlabels", "from_name": "seg", "value": {"points": [[0, 0], [100, 0], [100, 100], [0, 100]], "polygonlabels": ["ZP"]}}]
-    assert client.post("/webhook", json={**_event(ann_id=99), "annotation": {"id": 99, "result": sat, "quality_level": 2}}).get_json()["status"] == "ignored-invalid-mask"
 
 
 def test_dashboard_toggle_and_standalone(client):
@@ -132,30 +105,6 @@ def test_refresh_ls_skips_when_already_running(settings):
         assert svc.refresh_ls() == {"skipped": "a refresh is already running"}
 
 
-def test_forged_webhook_is_checked_against_label_studio(settings, monkeypatch):
-    img = np.zeros((256, 256), np.float32)
-    monkeypatch.setattr(app_module, "fetch_image", lambda *a, **k: (img, 256, 256))
-    s = dataclasses.replace(settings, ls_url="http://ls.test", ls_token="tok")
-    svc = app_module.OnlineService(s)
-    real = {"id": 11, "task": 5, "project": 7, "quality_level": 1, "was_cancelled": False,
-            "result": mask_to_results(blastocyst_mask(), 256, 256, "seg", "image")}
-
-    def fake_req(method, url, **kw):
-        class R:
-            def raise_for_status(self): pass
-            def json(self):
-                return real if "/api/annotations/" in url else {"id": 5, "data": {"image": "/data/a.png"}}
-        return R()
-
-    monkeypatch.setattr(app_module.requests, "request", fake_req)
-    assert svc.enqueue(_event(quality=3)) == "queued"  # payload claims level 3, LS says level 1
-    deadline = time.time() + 30
-    while time.time() < deadline and "last_skipped" not in svc.telemetry:
-        time.sleep(0.1)
-    assert svc.telemetry["last_skipped"] == {"annotation_id": 11, "reason": "ignored-quality"}
-    assert svc.telemetry["episodes"] == []
-
-
 def test_webhook_without_project_is_ignored(client):
     event = _event()
     del event["project"]
@@ -194,18 +143,6 @@ def test_rollback_validates_version(client):
 def test_ops_token_not_accepted_in_query(client):
     assert client.get("/telemetry/live?token=secret").status_code == 401
     assert client.get("/telemetry/live", headers=AUTH).status_code == 200
-
-
-def test_mask_cache_bounded_and_consumed(client, monkeypatch):
-    monkeypatch.setattr(app_module, "MAX_CACHED_MASKS", 8)  # keep the test fast; the bound logic is size-independent
-    svc = client.application.config["svc"]
-    n = app_module.MAX_CACHED_MASKS + 5
-    for i in range(n):
-        svc.predict_task({"id": i, "data": {"image": "/data/x.png"}})
-    assert len(svc.last_predicted_mask) == app_module.MAX_CACHED_MASKS
-    assert 0 not in svc.last_predicted_mask and n - 1 in svc.last_predicted_mask
-    assert svc._initial_prediction({}, n - 1) is not None
-    assert n - 1 not in svc.last_predicted_mask  # popped once used for training
 
 
 def test_rollback_requires_token(client):
@@ -247,18 +184,6 @@ def test_dashboard_not_mounted_when_disabled(settings):
     assert c.post("/dashboard/toggle", json={"enabled": True}, headers=AUTH).status_code == 404
 
 
-def test_webhook_not_trusted_without_ls_token(settings, monkeypatch):
-    s = dataclasses.replace(settings, ls_url="http://ls.test", ls_token="")
-    svc = app_module.OnlineService(s)
-    monkeypatch.setattr(app_module.requests, "request", lambda *a, **k: pytest.fail("must not call LS without a token"))
-    assert svc.enqueue(_event(quality=3)) == "queued"
-    deadline = time.time() + 30
-    while time.time() < deadline and "last_error" not in svc.telemetry:
-        time.sleep(0.1)
-    assert "LS_TOKEN" in svc.telemetry["last_error"]
-    assert svc.telemetry["episodes"] == []
-
-
 def test_missing_anchor_file_is_optional(settings, tmp_path, caplog):
     # compose always sets ANCHOR_NPZ; an environment without anchors.npz must still boot
     s = dataclasses.replace(settings, anchor_npz=str(tmp_path / "missing.npz"))
@@ -285,3 +210,87 @@ def test_output_labels_follow_the_project_aliases():
     assert "Blastocoel" in names and "BC" not in names
     # a config that defines BC keeps it
     assert app_module.parse_label_config(alias.replace("Blastocoel", "BC"))[3] == app_module.CLASS_NAMES
+
+
+# ---- batch training ------------------------------------------------------------------------------
+TRAIN_IDS = [t for t in range(1, 200) if trainer.split_of(7, t) == "train"][:3]
+VAL_IDS = [t for t in range(1, 200) if trainer.split_of(7, t) == "val"][:2]
+
+
+def _ls_tasks(ids, result=None, quality=2):
+    result = result or mask_to_results(blastocyst_mask(), 256, 256, "seg", "image")
+    return [{"id": t, "data": {"image": f"/data/{t}.png"}, "predictions": [],
+             "annotations": [{"id": 100 + t, "result": result, "quality_level": quality, "was_cancelled": False,
+                              "updated_at": "2026-11-12T10:00"}]} for t in ids]
+
+
+@pytest.fixture
+def ls_svc(settings, monkeypatch):
+    img = np.random.default_rng(2).random((256, 256)).astype(np.float32)
+    monkeypatch.setattr(app_module, "fetch_image", lambda *a, **k: (img, 256, 256))
+    s = dataclasses.replace(settings, ls_url="http://ls.test", ls_token="tok", ls_project_id=7)
+    tasks = {"list": _ls_tasks(TRAIN_IDS + VAL_IDS)}
+
+    def fake_get(url, **kw):
+        page = kw.get("params", {}).get("page")
+
+        class R:
+            status_code = 200 if page == 1 else 404
+            def raise_for_status(self): pass
+            def json(self): return tasks["list"] if page == 1 else []
+        return R()
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+    monkeypatch.setattr(app_module.requests, "request", lambda *a, **k: type("R", (), {"raise_for_status": lambda self: None})())
+    svc = app_module.OnlineService(s)
+    svc.fake_tasks = tasks
+    return svc
+
+
+def test_job_trains_on_reviewed_annotations_and_records_both_metrics(ls_svc):
+    rec = ls_svc.run_job(force=True, job_id="t1")
+    assert "last_error" not in ls_svc.telemetry, ls_svc.telemetry.get("last_error")
+    assert rec["version"] == "v1"
+    assert sorted(rec["train_tasks"]) == sorted(TRAIN_IDS) and sorted(rec["val_tasks"]) == sorted(VAL_IDS)
+    info = ls_svc.registry.info("v1")
+    assert "metrics" in info and info["project_val_dice"] is not None and info["kind"] == "batch"
+    assert "insufficient_project_val" in info["note"]  # 2 val tasks < PROJECT_VAL_MIN
+    assert info["layer_shifts"]["encoder_frozen"]["l2_shift"] == 0.0
+    # nothing new since the last job -> no retrain unless forced, and this survives a restart
+    assert ls_svc.run_job(force=False) is None and ls_svc.telemetry["pending"]["new_train"] == 0
+    again = app_module.OnlineService(ls_svc.s)
+    assert set(again.registry.data["last_job"]["digests"]) == {str(t) for t in TRAIN_IDS}
+
+
+def test_job_waits_for_n_new_annotations(ls_svc):
+    ls_svc.s = dataclasses.replace(ls_svc.s, train_every_n=10)
+    assert ls_svc.run_job(force=False) is None
+    assert ls_svc.telemetry["pending"] == {"new_train": len(TRAIN_IDS), "train": len(TRAIN_IDS), "val": len(VAL_IDS), "threshold": 10}
+    assert ls_svc.registry.active == "v0" and "last_job" not in ls_svc.registry.data
+
+
+def test_job_skips_low_quality_annotations(ls_svc):
+    ls_svc.fake_tasks["list"] = _ls_tasks(TRAIN_IDS, quality=1)
+    assert ls_svc.run_job(force=True) is None
+    assert ls_svc.telemetry["pending"]["train"] == 0
+
+
+def test_job_needs_ls_credentials(settings):
+    svc = app_module.OnlineService(dataclasses.replace(settings, ls_url="http://ls.test", ls_token=""))
+    assert svc.run_job(force=True) is None
+    assert "LS_TOKEN" in svc.telemetry["last_error"]
+
+
+def test_webhook_filters_and_train_route(ls_svc):
+    client = app_module.create_app(ls_svc.s, ls_svc).test_client()
+    assert client.post("/webhook", json={"action": "TASKS_CREATED"}).get_json()["status"] == "ignored-action"
+    assert client.post("/webhook", json={"action": "ANNOTATION_CREATED", "project": {"id": 99}}).get_json()["status"] == "ignored-project"
+    with ls_svc.train_lock:  # a job is running
+        assert client.post("/webhook", json={"action": "ANNOTATION_CREATED", "project": {"id": 7}}).get_json()["status"] == "running"
+        assert client.post("/train").status_code == 409
+    body = client.post("/train").get_json()
+    assert body["status"] == "started"
+    deadline = time.time() + 120
+    while time.time() < deadline and ls_svc.train_lock.locked():
+        time.sleep(0.2)
+    assert ls_svc.telemetry["jobs"][-1]["job_id"] == body["job_id"]

@@ -123,6 +123,26 @@ def results_to_mask(results: list[dict], from_name: str | None = None, size: int
     return mask
 
 
+IGNORE = 255
+SHAPE_TYPES = {"polygonlabels", "ellipsebasedpolygonlabels", "brushlabels"}  # rectangles/keypoints are prompts, not shapes
+
+
+def annotation_target(results: list[dict], from_name: str | None = None, size: int = SIZE) -> np.ndarray:
+    """Training target from an annotation. Unlabelled pixels are background only outside the drawn ZP;
+    inside the ZP (or everywhere when no ZP was drawn) they are IGNORE, so a class the annotator skipped
+    is never taught as background."""
+    shapes = [r for r in results or [] if r.get("type") in SHAPE_TYPES]
+    y = results_to_mask(shapes, from_name, size)
+    # ZP extent: the filled outer boundary (holes dropped), so the whole embryo counts as "inside"
+    zp_outer = [{**r, "value": {k: v for k, v in (r.get("value") or {}).items() if k != "holes"}} for r in shapes]
+    zp = (results_to_mask(zp_outer, from_name, size) == ZP).astype(np.uint8)
+    contours, _ = cv2.findContours(zp, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    inside = np.zeros_like(zp)
+    cv2.drawContours(inside, contours, -1, 1, -1)  # also closes brush-painted ZP rings
+    y[(y == BG) & ((inside > 0) | (not contours))] = IGNORE
+    return y
+
+
 def bio_valid(mask: np.ndarray) -> bool:
     """Reject empty foreground masks or single-class foreground saturation (>=95% of image area)."""
     fg = mask[mask > 0]

@@ -7,7 +7,6 @@ services:
         TORCH_INDEX_URL: https://download.pytorch.org/whl/cu128
     environment:
       DEVICE: ${TASDF_DEVICE:-cuda}
-      EPISODE_EPOCHS: ${TASDF_EPISODE_EPOCHS:-3}
       HOLDOUT_LIMIT: ${TASDF_HOLDOUT_LIMIT:-0}
     deploy:
       resources:

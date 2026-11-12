@@ -38,13 +38,13 @@ class Settings:
     ol_token: str
     min_quality_level: int
     refresh_next_n: int
-    episode_epochs: int
-    replay_size: int
+    train_every_n: int
+    train_steps: int
+    eval_every: int
+    project_val_min: int
+    promote_min_gain: float
     holdout_limit: int
     lr: float
-    ema_alpha: float
-    corr_beta: float
-    topo_sup_weight: float
     base_channels: int
     erosion: str
     request_timeout: float
@@ -66,13 +66,14 @@ class Settings:
             ol_token=os.getenv("OL_TOKEN", ""),
             min_quality_level=_int("MIN_QUALITY_LEVEL", 2),
             refresh_next_n=_int("REFRESH_NEXT_N", 0),
-            episode_epochs=_int("EPISODE_EPOCHS", 3),
-            replay_size=_int("REPLAY_SIZE", 4),
+            # batch retraining: on N new reviewed train-split annotations or POST /train
+            train_every_n=_int("TRAIN_EVERY_N", 10),
+            train_steps=_int("TRAIN_STEPS", 200),
+            eval_every=_int("EVAL_EVERY", 20),
+            project_val_min=_int("PROJECT_VAL_MIN", 10),
+            promote_min_gain=_float("PROMOTE_MIN_GAIN", 0.005),
             holdout_limit=_int("HOLDOUT_LIMIT", 0),
-            lr=_float("LR", 1e-4),
-            ema_alpha=_float("EMA_ALPHA", 0.65),
-            corr_beta=_float("CORR_BETA", 0.5),
-            topo_sup_weight=_float("TOPO_SUP_WEIGHT", 0.1),
+            lr=_float("LR", 3e-4),
             # must match the baseline checkpoint (M2-B: 64 / cross)
             base_channels=_int("BASE_CHANNELS", 64),
             erosion=os.getenv("EROSION", "cross"),

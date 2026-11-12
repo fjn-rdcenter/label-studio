@@ -1,44 +1,56 @@
-"""Export a labeled TASDF split to the npz the backend reads (HOLDOUT_NPZ / ANCHOR_NPZ).
+"""Export a labelled D10 split to the npz the backend reads (HOLDOUT_NPZ / ANCHOR_NPZ).
 
-Runs where the research repo is importable, with the exact dataset config of the baseline run:
+    python scripts/export_npz.py --root <Research>/dataset/D10 --split valid --out holdout.npz   # anti-forgetting gate
+    python scripts/export_npz.py --root <Research>/dataset/D10 --split train --out anchors.npz   # anchor samples
 
-    python scripts/export_npz.py --tasdf-repo D:/Workspace/model/tasdf-audit \
-        --run-json D:/Workspace/model/tasdf-audit/experiments/fix_m2b/run/run.json \
-        --split test --root-dir D:/Workspace/model/tasdf-audit/data/D10 --out holdout.npz
-
-Output: images uint8 (N, 256, 256), masks uint8 (N, 256, 256) with 255 = ignore.
+Reads <root>/<split>/masks/*.png (class ids 0..4 = BG, ZP, TE, ICM, BC) and the image of the same name in
+<root>/<split>/images/. Only images that have a mask are exported (D10 test has none: never use it here).
+Output: images uint8 (N, 256, 256) gray, masks uint8 (N, 256, 256).
 """
 import argparse
-import json
 import sys
+from pathlib import Path
 
+import cv2
 import numpy as np
 
+SIZE = 256
+CLASSES = {0, 1, 2, 3, 4}
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--tasdf-repo", required=True)
-    ap.add_argument("--run-json", required=True, help="run.json of the baseline run (dataset section is reused)")
-    ap.add_argument("--split", default="test")
-    ap.add_argument("--root-dir", help="override dataset.root_dir (run.json may hold a server path)")
-    ap.add_argument("--out", required=True)
-    args = ap.parse_args()
 
-    sys.path.insert(0, args.tasdf_repo)
-    from tasdf.data.builder import build_dataset
-
-    cfg = dict(json.load(open(args.run_json, encoding="utf-8"))["config"]["dataset"])
-    if args.root_dir:
-        cfg["root_dir"] = args.root_dir
-    ds = build_dataset(cfg, split=args.split, is_labeled=True, is_train=False)
+def load_split(root: Path, split: str) -> tuple[np.ndarray, np.ndarray]:
+    mask_paths = sorted((root / split / "masks").glob("*.png"))
+    if not mask_paths:
+        raise SystemExit(f"no masks in {root / split / 'masks'}: this split has no labels")
     images, masks = [], []
-    for i in range(len(ds)):
-        img, mask = ds[i][:2]
-        images.append(np.round(img.squeeze(0).numpy() * 255).astype(np.uint8))
-        masks.append(mask.numpy().astype(np.uint8))
-    np.savez_compressed(args.out, images=np.stack(images), masks=np.stack(masks))
-    print(f"wrote {args.out}: {len(images)} samples from split={args.split}")
+    for mp in mask_paths:
+        candidates = sorted((root / split / "images").glob(mp.stem + ".*"))
+        if not candidates:
+            raise SystemExit(f"no image for mask {mp.name}")
+        gray = cv2.imread(str(candidates[0]), cv2.IMREAD_GRAYSCALE)
+        mask = cv2.imread(str(mp), cv2.IMREAD_UNCHANGED)
+        if gray is None or mask is None or mask.ndim != 2:
+            raise SystemExit(f"unreadable or non single-channel pair: {mp.name}")
+        images.append(cv2.resize(gray, (SIZE, SIZE), interpolation=cv2.INTER_LINEAR))
+        masks.append(cv2.resize(mask, (SIZE, SIZE), interpolation=cv2.INTER_NEAREST))
+    images, masks = np.stack(images).astype(np.uint8), np.stack(masks).astype(np.uint8)
+    present = set(np.unique(masks).tolist())
+    # the old export took D10 test via another source: no BC, TE covered the cavity. Refuse such sets.
+    if present != CLASSES:
+        raise SystemExit(f"masks must contain exactly classes {sorted(CLASSES)}, found {sorted(present)}")
+    return images, masks
+
+
+def main(argv=None) -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--root", required=True, help="D10 dataset root (contains train/ valid/)")
+    ap.add_argument("--split", required=True, choices=["train", "valid"])
+    ap.add_argument("--out", required=True)
+    args = ap.parse_args(argv)
+    images, masks = load_split(Path(args.root), args.split)
+    np.savez_compressed(args.out, images=images, masks=masks)
+    print(f"wrote {args.out}: {len(images)} samples from {args.split}, classes {sorted(np.unique(masks).tolist())}")
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

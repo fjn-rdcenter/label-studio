@@ -1,8 +1,7 @@
-"""Online update of a TASDF model: trainable subset, correction-aware episode, outer EMA,
-anti-forgetting gate and weight-shift telemetry. Pure torch, no web code."""
+"""TASDF model helpers for retraining: trainable subset, evaluation, anti-forgetting gate and
+weight-shift telemetry. Pure torch, no web code."""
 from __future__ import annotations
 
-import copy
 import math
 
 import numpy as np
@@ -10,7 +9,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from tasdf.losses.losses import MainLoss
 from tasdf.models.final_model import TASDFNet
 from tasdf.utils.metrics_v2 import SegMetricsV2
 
@@ -89,60 +87,6 @@ def _soft_dice_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return 1 - ((2 * inter + 1) / (denom + 1)).mean()
 
 
-def episode_loss(model, loss_fn: MainLoss, x, y, w, topo_sup_weight: float) -> tuple[torch.Tensor, dict]:
-    """gamma * (W-weighted CE + Dice + topo-sup) + M2-B unlabeled term (CPS + topo consistency)."""
-    (p1, t1), (p2, t2) = model(x, branch="both")
-    sup = 0.0
-    valid_w = w * (y != IGNORE)
-    denom_w = valid_w.sum().clamp_min(1.0)
-    for p in (p1, p2):
-        ce = F.cross_entropy(p.float(), y, ignore_index=IGNORE, reduction="none")
-        sup = sup + (ce * valid_w).sum() / denom_w + _soft_dice_loss(p, y)
-    topo = torch.zeros((), device=x.device)
-    if topo_sup_weight > 0:
-        skel, valid = loss_fn._extract_target_skeleton(y, num_classes=NUM_CLASSES, target_channels=t1.shape[1])
-        denom = (valid.sum() * t1.shape[1]).clamp_min(1.0)
-        topo = ((((t1.float() - skel) ** 2) * valid).sum() + (((t2.float() - skel) ** 2) * valid).sum()) / denom
-        sup = sup + topo_sup_weight * topo
-    # reuse M2-B unlabeled term on the same images; its own sup term is ignored
-    _, unsup, m = loss_fn.terms(p1, p2, y, p1, p2, t1, t2, current_epoch=loss_fn.max_epochs)
-    total = loss_fn.gamma * sup + unsup
-    return total, {"total": total.item(), "sup": float(sup.detach()), "topo_sup": topo.item(), "pc": m["loss_pc"], "tc": m["loss_tc"]}
-
-
-def run_episode(teacher: nn.Module, x: torch.Tensor, y: torch.Tensor, w: torch.Tensor, *, epochs: int, lr: float,
-                ema_alpha: float, topo_sup_weight: float, erosion: str, amp: bool) -> tuple[nn.Module, list[dict]]:
-    """Train a student copy on (new sample + replay), return EMA candidate and per-epoch losses.
-    x: (B,1,H,W), y: (B,H,W) long, w: (B,H,W) pixel weights. Teacher is left untouched."""
-    device = next(teacher.parameters()).device
-    student = copy.deepcopy(teacher)
-    select_trainable(student)
-    params = [p for p in student.parameters() if p.requires_grad]
-    opt = torch.optim.Adam(params, lr=lr)
-    scaler = torch.amp.GradScaler("cuda", enabled=amp)
-    loss_fn = MainLoss(gamma=0.5, topo_sup_weight=0.0, max_epochs=1, erosion=erosion).to(device)
-    x, y, w = x.to(device), y.to(device), w.to(device)
-    history = []
-    for _ in range(epochs):
-        opt.zero_grad(set_to_none=True)
-        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
-            loss, metrics = episode_loss(student, loss_fn, x, y, w, topo_sup_weight)
-        scaler.scale(loss).backward()
-        scaler.step(opt)
-        scaler.update()
-        history.append(metrics)
-
-    candidate = copy.deepcopy(teacher)
-    s_params = dict(student.named_parameters())
-    with torch.no_grad():
-        # per-parameter EMA keeps net1/net2 separate (names are net1.* / net2.*); frozen params stay equal
-        for name, p in candidate.named_parameters():
-            if is_trainable(name):
-                p.mul_(ema_alpha).add_(s_params[name].detach(), alpha=1 - ema_alpha)
-    candidate.eval()
-    return candidate, history
-
-
 def evaluate(model: nn.Module, images: torch.Tensor, masks: np.ndarray) -> dict:
     """Ensemble prediction on holdout -> pooled mDice and per-class Dice."""
     probs, _ = predict_probs(model, images)
@@ -210,18 +154,3 @@ def layer_shifts(before: nn.Module, after: nn.Module, base: dict) -> dict:
     a, b = torch.cat(pix_now), torch.cat(pix_base)
     out["pixel_head_cosine_drift"] = float(1 - F.cosine_similarity(a, b, dim=0))
     return out
-
-
-def local_probe(before_probs: torch.Tensor, after_probs: torch.Tensor, y: np.ndarray) -> dict:
-    """Fit on the just-trained sample (NOT generalisation): Dice before/after, absorption of corrected pixels."""
-    pb, pa = before_probs.argmax(0).numpy(), after_probs.argmax(0).numpy()
-    wrong = pb != y
-    absorbed = int((pa[wrong] == y[wrong]).sum())
-    return {
-        "dice_before": mean_dice(pb, y)[0],
-        "dice_after": mean_dice(pa, y)[0],
-        "corrected_pixels": int(wrong.sum()),
-        "absorbed_pixels": absorbed,
-        "absorption_rate_pct": 100.0 * absorbed / max(1, int(wrong.sum())),
-        "mean_prob_shift": float(0.5 * (after_probs - before_probs).abs().sum(0).mean()),
-    }
