@@ -72,7 +72,7 @@ Container chạy với `TASDF_UID:TASDF_GID` (mặc định 1000:1000), và user
 
 Nếu cấu hình sai, `docker logs` sẽ báo `PermissionError ... registry.json.tmp`.
 
-**GPU** (cần NVIDIA Container Toolkit). Trong `.env` đặt `TASDF_EPISODE_EPOCHS=3`, `TASDF_HOLDOUT_LIMIT=0`, và `TASDF_DEVICE=cuda:N` nếu cần chọn GPU:
+**GPU** (cần NVIDIA Container Toolkit). Overlay GPU tự đặt `DEVICE=cuda`, `EPISODE_EPOCHS=3`, `HOLDOUT_LIMIT=0`; chỉ bỏ comment `TASDF_*` trong `.env` khi muốn khác (vd. `TASDF_DEVICE=cuda:1`). Đặt `TASDF_DEVICE=cuda` mà chạy không có overlay GPU thì service dừng ngay:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.tasdf.yml -f docker-compose.tasdf-gpu.yml up -d --build

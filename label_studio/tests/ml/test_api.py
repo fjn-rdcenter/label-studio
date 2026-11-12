@@ -384,3 +384,92 @@ def test_ml_backend_predict_test_api_post_random_true(business_client):
     r = response.json()
     assert r['url'] == 'http://localhost:8999/predict'
     assert r['status'] == 200
+
+
+TIMELAPSE_CONFIG = """<View>
+  <Repeater on="$timelapse" indexFlag="{{idx}}" mode="pagination">
+    <Image name="timelapse_{{idx}}" valueList="$timelapse[{{idx}}].image_urls"/>
+    <PolygonLabels name="pl-{{idx}}" toName="timelapse_{{idx}}"><Label value="ZP"/><Label value="Blastocoel"/></PolygonLabels>
+  </Repeater>
+  <Text name="text" value="note"/>
+  <Choices name="pn" toName="text"><Choice value="Unknown"/></Choices>
+</View>"""
+TIMELAPSE_DATA = {
+    'timelapse': [
+        {'time': '4:13:17:56', 'image_urls': ['/data/local-files/?d=w/0/1.jpg', '/data/local-files/?d=w/0/2.jpg']},
+        {'time': '4:13:32:56', 'image_urls': ['/data/local-files/?d=w/1/1.jpg', '/data/local-files/?d=w/1/2.jpg']},
+    ]
+}
+
+
+def _timelapse_backend(business_client):
+    project = make_project(
+        config=dict(is_published=True, label_config=TIMELAPSE_CONFIG, title='timelapse'),
+        user=business_client.user,
+        use_ml_backend=True,
+    )
+    task = Task.objects.create(project=project, data=TIMELAPSE_DATA)
+    return project.get_ml_backends().first(), task
+
+
+@pytest.mark.django_db
+def test_smart_prediction_sends_the_pointed_image_as_a_single_image(business_client):
+    backend, task = _timelapse_backend(business_client)
+    region = {'from_name': 'pl-1', 'to_name': 'timelapse_1', 'type': 'polygonlabels',
+              'value': {'points': [[1, 1], [5, 1], [5, 5]], 'polygonlabels': ['ZP']}}
+    url = '/data/local-files/?d=w/1/2.jpg'
+    with requests_mock.Mocker() as m:
+        register_ml_backend_mock(m, url=backend.url, predictions={'results': [{'result': [region], 'score': 0.9}]})
+        response = business_client.post(
+            f'/api/ml/{backend.id}/predict/test',
+            data=json.dumps({'task': task.id, 'image': {'url': url, 'to_name': 'timelapse_1', 'item_index': 1}}),
+            content_type='application/json',
+        )
+        sent = [r.json() for r in m.request_history if r.path == '/predict'][-1]
+    assert response.status_code == 200, response.content
+    assert sent['tasks'][0]['data'] == {'image': url}
+    assert sent['tasks'][0]['id'] == task.id
+    config = sent['label_config']
+    assert '<Image name="timelapse_1" value="$image" />' in config
+    assert 'name="pl-1"' in config and 'toName="timelapse_1"' in config and 'Blastocoel' in config
+    assert '{{idx}}' not in config and 'Repeater' not in config and 'name="pn"' not in config
+    assert response.json()['data']['result'][0]['item_index'] == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    'image',
+    [
+        {'url': 'http://evil.example/x.jpg', 'to_name': 'timelapse_0', 'item_index': 0},
+        {'url': '/data/local-files/?d=w/0/1.jpg', 'to_name': 'timelapse_0', 'item_index': '0'},
+        'not-a-dict',
+    ],
+)
+def test_smart_prediction_rejects_an_image_outside_the_task(business_client, image):
+    backend, task = _timelapse_backend(business_client)
+    with requests_mock.Mocker() as m:
+        register_ml_backend_mock(m, url=backend.url)
+        response = business_client.post(
+            f'/api/ml/{backend.id}/predict/test',
+            data=json.dumps({'task': task.id, 'image': image}),
+            content_type='application/json',
+        )
+        assert not [r for r in m.request_history if r.path == '/predict']
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_backend_error_message_reaches_the_user(business_client):
+    backend, task = _timelapse_backend(business_client)
+    with requests_mock.Mocker() as m:
+        register_ml_backend_mock(m, url=backend.url)
+        m.post(f'{backend.url}/predict', status_code=400, json={'error': 'label config needs a PolygonLabels tag'})
+        smart = business_client.post(
+            f'/api/ml/{backend.id}/predict/test', data=json.dumps({'task': task.id}), content_type='application/json'
+        )
+        debug = business_client.post(f'/api/ml/{backend.id}/predict/test?random=true')
+    assert smart.status_code == 200
+    assert 'label config needs a PolygonLabels tag' in smart.json()['errors'][0]
+    assert debug.status_code == 200  # was a 500: Response(**None)
+    assert debug.json()['status'] == 400
+    assert 'label config needs a PolygonLabels tag' in debug.json()['error_message']

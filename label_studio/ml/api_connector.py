@@ -159,11 +159,8 @@ class MLApi(BaseHTTPAPI):
                 response = self.get(url=url, *args, **kwargs)
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
-            # Extending error details in case of failed request
-            if flag_set('fix_back_dev_3351_ml_validation_error_extension_short', AnonymousUser):
-                error_string = str(e) + (' ' + str(response.text) if response else '')
-            else:
-                error_string = str(e)
+            # keep the backend's own error body: an error Response is falsy, so test `is not None`
+            error_string = str(e) + (' ' + str(response.text) if response is not None else '')
             status_code = response.status_code if response is not None else 0
             return MLApiResult(url, request, {'error': error_string}, headers, 'error', status_code=status_code)
         status_code = response.status_code
@@ -209,11 +206,11 @@ class MLApi(BaseHTTPAPI):
             }
             return self._request('train', request, verbose=False, timeout=TIMEOUT_PREDICT)
 
-    def _prep_prediction_req(self, tasks, project, context=None):
+    def _prep_prediction_req(self, tasks, project, context=None, label_config=None):
         request = {
             'tasks': tasks,
             'project': self._create_project_uid(project),
-            'label_config': project.label_config,
+            'label_config': label_config or project.label_config,
             'params': {
                 'login': project.task_data_login,
                 'password': project.task_data_password,
@@ -223,8 +220,8 @@ class MLApi(BaseHTTPAPI):
 
         return request
 
-    def make_predictions(self, tasks, project, context=None):
-        request = self._prep_prediction_req(tasks, project, context=context)
+    def make_predictions(self, tasks, project, context=None, label_config=None):
+        request = self._prep_prediction_req(tasks, project, context=context, label_config=label_config)
         return self._request(PREDICT_URL, request, verbose=False, timeout=TIMEOUT_PREDICT)
 
     def health(self):

@@ -1,0 +1,89 @@
+<mxGraphModel adaptiveColors="auto">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="VÒNG LẶP HỌC TRỰC TUYẾN LIÊN TỤC (TASDF CONTINUOUS ONLINE LEARNING LOOP)&#xa;Kiến trúc Tự Thích ứng &amp; Chống Quên trong Nhánh ML-backend-design" style="rounded=1;whiteSpace=wrap;html=1;fontSize=14;fontStyle=1;fillColor=#1e293b;strokeColor=#334155;fontColor=#38bdf8;shadow=1;align=center;" vertex="1" parent="1">
+      <mxGeometry x="80" y="25" width="840" height="55" as="geometry"/>
+    </mxCell>
+    <mxCell id="step1" value="1. Chuyên gia / Reviewer Duyệt Nhãn&#xa;• Thao tác trên giao diện Label Studio&#xa;• Tiêu chí: quality_level &gt;= 2 (Đã qua kiểm định)&#xa;• Kết quả: Vùng Polygon / Ring (ZP, TE, ICM, BC)" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e0f2fe;strokeColor=#0284c7;fontColor=#0369a1;align=center;shadow=1;" vertex="1" parent="1">
+      <mxGeometry x="330" y="110" width="340" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="step2" value="2. Label Studio Phát Webhook Kích Hoạt&#xa;• Sự kiện: ANNOTATION_CREATED / UPDATED&#xa;• Gửi HTTP POST /webhook tới ML Backend" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#5b21b6;align=center;shadow=1;" vertex="1" parent="1">
+      <mxGeometry x="330" y="210" width="340" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="step3" value="3. Tiếp Nhận Nhanh &amp; Hàng Đợi Bất Đồng Bộ (app.py)&#xa;• Lọc sơ bộ: đúng project_id, quality &gt;= 2, SHA-1 mới&#xa;• Đẩy annotation_id vào Queue &amp; trả HTTP 200 ngay (&lt;50ms)&#xa;• Ngăn chặn timeout kết nối Webhook phía Label Studio" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fef3c7;strokeColor=#d97706;fontColor=#92400e;align=center;shadow=1;" vertex="1" parent="1">
+      <mxGeometry x="330" y="300" width="340" height="75" as="geometry"/>
+    </mxCell>
+    <mxCell id="step4" value="4. Worker Thread &amp; Xác Thực Zero-Trust&#xa;• Worker chạy nền độc lập, rút task từ Queue&#xa;• Gọi API LS bằng LS_TOKEN: lấy annotation &amp; task gốc&#xa;• Loại trừ nguy cơ tiêm nhãn giả hoặc ảnh sai từ payload" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#9a3412;align=center;shadow=1;" vertex="1" parent="1">
+      <mxGeometry x="330" y="405" width="340" height="75" as="geometry"/>
+    </mxCell>
+    <mxCell id="step5" value="5. Chuẩn Bị Dữ Liệu &amp; Trọng Số Sửa Lỗi (w_new)&#xa;• results_to_mask(): Chuyển Polygon/Ring -&gt; Mask Y (256x256)&#xa;• Lấy P_init (dự đoán mô hình mà bác sĩ đã nhìn thấy ban đầu)&#xa;• Trọng số sửa lỗi: w_new = 1.0 + beta * (P_init != Y) [x1.5 trọng số]&#xa;• Ghép thêm mẫu Replay Buffer + Anchors để chống quên" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#854d0e;align=center;shadow=1;" vertex="1" parent="1">
+      <mxGeometry x="330" y="510" width="340" height="85" as="geometry"/>
+    </mxCell>
+    <mxCell id="step6" value="6. Huấn Luyện Thích Ứng Student (norm_and_heads)&#xa;• Sao chép Teacher -&gt; Student (TASDFNet)&#xa;• Đóng băng Backbone; Giữ BN Stats ở chế độ eval()&#xa;• Chỉ mở 311,570 tham số: BN affine + up4 + heads&#xa;• Hàm mất mát: Weighted CE + SoftDice + ITGM Tô pô + CPS" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#9d174d;align=center;shadow=1;" vertex="1" parent="1">
+      <mxGeometry x="330" y="625" width="340" height="85" as="geometry"/>
+    </mxCell>
+    <mxCell id="step7" value="7. Hòa Trộn Trọng Số Polyak Outer EMA&#xa;• theta_cand = alpha * theta_teacher + (1 - alpha) * theta_student&#xa;• alpha = 0.65 (Ngăn chặn xê dịch trọng số quá mức)" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#6b21a8;align=center;shadow=1;" vertex="1" parent="1">
+      <mxGeometry x="330" y="740" width="340" height="65" as="geometry"/>
+    </mxCell>
+    <mxCell id="step8" value="8. Cổng Chống Quên Trên Holdout Set?&#xa;[Kiểm tra 4 Bất đẳng thức mDice / Dice]&#xa;1. mDice tụt &lt;= 0.5% vs v(t-1)&#xa;2. mDice tụt &lt;= 5% vs v0&#xa;3. Dice từng lớp tụt &lt;= 5% vs v(t-1)&#xa;4. Dice từng lớp tụt &lt;= 8% vs v0&#xa;5. Trọng số đóng băng L2 shift == 0" style="rhombus;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ccfbf1;strokeColor=#0d9488;fontColor=#115e59;fontStyle=1;align=center;shadow=1;" vertex="1" parent="1">
+      <mxGeometry x="340" y="835" width="320" height="120" as="geometry"/>
+    </mxCell>
+    <mxCell id="step9A" value="9A. Từ Chối Thăng Hạng (Rejected)&#xa;• Đánh dấu status = 'rejected'&#xa;• Ghi log lý do vào registry.json&#xa;• KHÔNG lưu file trọng số .pt&#xa;• Giữ nguyên Teacher v(t-1)" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#b91c1c;align=center;shadow=1;" vertex="1" parent="1">
+      <mxGeometry x="720" y="857.5" width="230" height="75" as="geometry"/>
+    </mxCell>
+    <mxCell id="step9B" value="9B. Chấp Nhận &amp; Lưu Trọng Số Nguyên Tử&#xa;• Lưu delta v{N}.pt (~1.25 MB) qua file .tmp an toàn&#xa;• Cập nhật active = 'vN' trong registry.json&#xa;• Chuyển đổi mô hình: Teacher = Candidate&#xa;• Thêm mẫu vừa học vào Replay Buffer" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#15803d;align=center;shadow=1;" vertex="1" parent="1">
+      <mxGeometry x="330" y="990" width="340" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="step10" value="10. Đồng Bộ Phiên Bản Sang Label Studio&#xa;• Tính toán trước N task chưa gán nhãn (REFRESH_NEXT_N)&#xa;• Gửi API: PATCH /api/projects/:id&#xa;• Đặt model_version = 'tasdf-vN'" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e0e7ff;strokeColor=#4f46e5;fontColor=#3730a3;align=center;shadow=1;" vertex="1" parent="1">
+      <mxGeometry x="330" y="1100" width="340" height="75" as="geometry"/>
+    </mxCell>
+    <mxCell id="step11" value="11. Sẵn Sàng Cho Lượt Dự Đoán Mới&#xa;• Smart Prediction lập tức sử dụng trọng số vN&#xa;• Khép kín vòng phản hồi trực tuyến liên tục" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fontStyle=1;fillColor=#d1fae5;strokeColor=#059669;fontColor=#065f46;align=center;shadow=1;" vertex="1" parent="1">
+      <mxGeometry x="330" y="1205" width="340" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="legend" value="BẢNG CHÚ GIẢI THÀNH PHẦN&#xa;• Xanh dương: Label Studio / UI Layer&#xa;• Tím: Giao thức Webhook &amp; Phản xạ nhanh&#xa;• Cam/Vàng: Zero-Trust &amp; Tiền xử lý dữ liệu&#xa;• Đỏ hồng: Động cơ PyTorch norm_and_heads&#xa;• Xanh mòng két: Cổng kiểm định chống quên&#xa;• Xanh lá: Quản lý phiên bản &amp; Tái đồng bộ" style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f8fafc;strokeColor=#94a3b8;fontColor=#334155;align=left;spacingLeft=10;shadow=1;" vertex="1" parent="1">
+      <mxGeometry x="50" y="835" width="240" height="120" as="geometry"/>
+    </mxCell>
+    <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#0284c7;strokeWidth=2;" edge="1" source="step1" target="step2" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#7c3aed;strokeWidth=2;" edge="1" source="step2" target="step3" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e3" value="Hàng đợi ngầm" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#d97706;strokeWidth=2;fontSize=10;fontColor=#b45309;" edge="1" source="step3" target="step4" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#ea580c;strokeWidth=2;" edge="1" source="step4" target="step5" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#ca8a04;strokeWidth=2;" edge="1" source="step5" target="step6" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#db2777;strokeWidth=2;" edge="1" source="step6" target="step7" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#9333ea;strokeWidth=2;" edge="1" source="step7" target="step8" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e8_fail" value="KHÔNG ĐẠT" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#ef4444;strokeWidth=2;fontSize=10;fontColor=#dc2626;fontStyle=1;" edge="1" source="step8" target="step9A" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e8_pass" value="ĐẠT TIÊU CHUẨN" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#16a34a;strokeWidth=2;fontSize=10;fontColor=#16a34a;fontStyle=1;" edge="1" source="step8" target="step9B" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#16a34a;strokeWidth=2;" edge="1" source="step9B" target="step10" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#4f46e5;strokeWidth=2;" edge="1" source="step10" target="step11" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_loop" value="Vòng lặp kín: Cung cấp dự đoán mới cho các ca gán nhãn tiếp theo" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#059669;strokeWidth=2;dashed=1;fontSize=10;fontColor=#047857;exitX=0;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="step11" target="step1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="20" y="1235"/>
+          <mxPoint x="20" y="145"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+  </root>
+</mxGraphModel>

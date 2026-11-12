@@ -238,10 +238,23 @@ DataManagerPage.context = ({ dmRef }) => {
   const isModelRegion = (r) =>
     String(r?.id || "").startsWith("tasdf-") || r?.origin === "prediction" || r?.origin === "prediction-changed";
 
+  // The image the user points at is a single image: the Repeater frame on screen (view_page) and its current slice.
+  const getTargetImage = (entity) => {
+    const images = [...(entity?.names?.values?.() ?? [])].filter((t) => t.type === "image");
+    if (!images.length) return null;
+    const page = Number.parseInt(new URLSearchParams(window.location.search).get("view_page"), 10) || 1;
+    const tag = images.length > 1 ? images[Math.min(page, images.length) - 1] : images[0];
+    const item_index = tag.valuelist ? tag.currentImage ?? 0 : null;
+    const url = tag.valuelist ? tag.parsedValueList?.[item_index] : tag.parsedValue;
+    return typeof url === "string" ? { url, to_name: tag.name, item_index } : null;
+  };
+
   const runSmartPrediction = useCallback(async () => {
     const lsfWrapper = dmRef?.lsf;
     const task = lsfWrapper?.task;
-    if (!task?.id) {
+    const store = lsfWrapper?.lsf;
+    const target = getTargetImage(lsfWrapper?.currentAnnotation || store?.annotationStore?.selected);
+    if (!task?.id || !target) {
       toast?.show?.({ message: "Hãy mở một ảnh để chạy Smart Prediction", type: "error" });
       return;
     }
@@ -259,16 +272,17 @@ DataManagerPage.context = ({ dmRef }) => {
     try {
       const response = await api.callApi("predictWithML", {
         params: { pk: backend.id },
-        body: { task: task.id, force: true },
+        body: { task: task.id, force: true, image: target },
       });
       if (response?.errors?.length) {
         toast?.show?.({ message: response.errors.join("; "), type: "error" });
         return;
       }
       const pred = response?.data || response;
-      const predResults = (pred?.result || []).map((r) => ({ ...r, origin: "prediction" }));
+      const where = `${target.to_name}:${target.item_index ?? 0}`;
+      // backend ids repeat on every image: make them unique per image so other frames' regions survive
+      const predResults = (pred?.result || []).map((r) => ({ ...r, id: `${r.id}@${where}`, origin: "prediction" }));
       const predId = pred?.id ? Number.parseInt(pred.id, 10) : null;
-      const store = lsfWrapper?.lsf;
       let annotation = lsfWrapper?.currentAnnotation || store?.annotationStore?.selected;
       if (store?.annotationStore && (!annotation || annotation.type === "prediction")) {
         annotation = store.annotationStore.createAnnotation({
@@ -283,7 +297,11 @@ DataManagerPage.context = ({ dmRef }) => {
           lsfWrapper.smartParentPrediction = { annotationId: annotation.id, predictionId: predId };
         }
         const existing = annotation.serializeAnnotation() || [];
-        const manualRegions = existing.filter((r) => !isModelRegion(r));
+        // only the target image is replaced; regions on other frames/slices are kept as they are
+        const onTarget = (r) =>
+          r.to_name === target.to_name && (target.item_index === null || (r.item_index ?? 0) === target.item_index);
+        const otherImages = existing.filter((r) => !onTarget(r));
+        const manualRegions = existing.filter((r) => onTarget(r) && !isModelRegion(r));
         const predLabels = new Set(predResults.map(getRegionLabel).filter(Boolean));
         const manualOverlap = manualRegions.some((r) => predLabels.has(getRegionLabel(r)));
         let keepOverlappingManual = false;
@@ -299,6 +317,7 @@ DataManagerPage.context = ({ dmRef }) => {
         } else {
           mergedResults = [...manualRegions.filter((r) => !predLabels.has(getRegionLabel(r))), ...predResults];
         }
+        mergedResults = [...otherImages, ...mergedResults];
         annotation.deleteAllRegions({ deleteReadOnly: true });
         annotation.deserializeResults(mergedResults);
         for (const r of annotation.regions || []) {
@@ -313,7 +332,11 @@ DataManagerPage.context = ({ dmRef }) => {
         annotation.updateObjects?.();
       }
       toast?.show?.({
-        message: `Smart Prediction (${pred?.model_version || backend.title}): Đã nạp ${predResults.length} vùng đa giác cho ảnh #${task.id}`,
+        message: `Smart Prediction (${pred?.model_version || backend.title}): Đã nạp ${
+          predResults.length
+        } vùng đa giác cho task #${task.id}, ${
+          target.item_index === null ? target.to_name : `${target.to_name} slice ${target.item_index + 1}`
+        }`,
         type: "info",
       });
     } finally {

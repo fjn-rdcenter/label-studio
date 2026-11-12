@@ -38,8 +38,9 @@ def test_health_setup_predict(client):
 
 
 def test_webhook_fast_filters_and_trains(client):
+    event = _event()  # built outside the timed span: it rasterises polygons, the webhook itself must stay fast
     t0 = time.perf_counter()
-    assert client.post("/webhook", json=_event()).get_json()["status"] == "queued"
+    assert client.post("/webhook", json=event).get_json()["status"] == "queued"
     assert (time.perf_counter() - t0) < 0.05
     assert client.post("/webhook", json=_event(quality=1, ann_id=12)).get_json()["status"] == "ignored-quality"
     assert client.post("/webhook", json={"action": "TASKS_CREATED"}).get_json()["status"] == "ignored-action"
@@ -182,7 +183,7 @@ def test_setup_from_other_project_keeps_label_config(client):
     client.post("/setup", json={"project": "99.1700000000", "schema": other})
     assert svc.label == before
     client.post("/setup", json={"project": "7.1700000000", "schema": other})
-    assert svc.label == ("q", "x", "pic")
+    assert svc.label[:3] == ("q", "x", "pic")
 
 
 def test_rollback_validates_version(client):
@@ -273,3 +274,14 @@ def test_startup_logs_settings_without_secrets(settings, caplog):
         app_module.create_app(s, app_module.OnlineService(s))
     assert "settings:" in caplog.text and "holdout_limit" in caplog.text
     assert "ls-secret-value" not in caplog.text and "ol-secret-value" not in caplog.text
+
+
+def test_output_labels_follow_the_project_aliases():
+    alias = ('<View><Image name="timelapse_3" value="$image"/><PolygonLabels name="pl-3" toName="timelapse_3">'
+             '<Label value="ZP"/><Label value="TE"/><Label value="ICM"/><Label value="Blastocoel"/></PolygonLabels></View>')
+    label = app_module.parse_label_config(alias)
+    assert label[:3] == ("pl-3", "timelapse_3", "image")
+    names = {r["value"]["polygonlabels"][0] for r in mask_to_results(blastocyst_mask(), 256, 256, *label[:2], label[3])}
+    assert "Blastocoel" in names and "BC" not in names
+    # a config that defines BC keeps it
+    assert app_module.parse_label_config(alias.replace("Blastocoel", "BC"))[3] == app_module.CLASS_NAMES

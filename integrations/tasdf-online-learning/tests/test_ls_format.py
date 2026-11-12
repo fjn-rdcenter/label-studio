@@ -7,8 +7,12 @@ from tasdf_online.ls_format import BC, ICM, TE, ZP, bio_valid, ls_media_url, mas
 
 
 def test_round_trip_keeps_rings_and_classes():
+    import cv2
+
     mask = blastocyst_mask()
-    results = mask_to_results(mask, 800, 600, "seg", "image")
+    # production traces the original-size map (predict_task); SIMPLIFY_TOL_PX is in pixels of that map
+    full = cv2.resize(mask, (800, 600), interpolation=cv2.INTER_NEAREST)
+    results = mask_to_results(full, 800, 600, "seg", "image")
     rings = {r["value"]["polygonlabels"][0] for r in results if r["value"].get("ring")}
     assert {"ZP", "TE"} <= rings
     assert all(len(r["value"]["holes"]) == 1 for r in results if r["value"].get("ring"))
@@ -115,3 +119,30 @@ def test_fetch_image_rejects_oversized_data_uri(monkeypatch):
     with pytest.raises(ValueError, match="bytes"):
         ls_format.fetch_image("", "", uri)
 
+
+
+def test_full_resolution_mask_round_trips():
+    import cv2
+
+    small = blastocyst_mask()
+    full = cv2.resize(small, (964, 1288), interpolation=cv2.INTER_NEAREST)  # non-square, like the real images
+    results = mask_to_results(full, 964, 1288, "seg", "image")
+    pts = [p for r in results for p in r["value"]["points"] + sum(r["value"].get("holes", []), [])]
+    assert all(0 <= x <= 100 and 0 <= y <= 100 for x, y in pts)
+    mdice, per = mean_dice(results_to_mask(results, "seg"), small)
+    assert mdice >= 0.95, per
+
+
+def test_polygon_stays_within_tolerance_with_few_vertices():
+    import cv2
+
+    from tasdf_online.ls_format import SIMPLIFY_TOL_PX
+
+    mask = np.zeros((1288, 964), np.uint8)
+    cv2.ellipse(mask, (482, 644), (380, 300), 20, 0, 360, ZP, -1)
+    (r,) = mask_to_results(mask, 964, 1288, "seg", "image")
+    poly = np.array([[x * 964 / 100, y * 1288 / 100] for x, y in r["value"]["points"]], np.float32)
+    contour = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)[0][0].reshape(-1, 2)
+    worst = max(abs(cv2.pointPolygonTest(poly.reshape(-1, 1, 2), (float(x), float(y)), True)) for x, y in contour[::5])
+    assert worst <= SIMPLIFY_TOL_PX + 0.1  # +0.1: percentages are rounded to 3 decimals
+    assert len(poly) < len(contour) / 20

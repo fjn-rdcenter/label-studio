@@ -1,0 +1,138 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="wpfZ2Bv3SlmSt1KWR8yG" name="Page-1">
+    <mxGraphModel dx="2197" dy="793" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0" adaptiveColors="auto">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="g1" parent="1" style="swimlane;whiteSpace=wrap;html=1;fontSize=11;fontStyle=1;fillColor=#f8fafc;strokeColor=#cbd5e1;fontColor=#475569;startSize=26;" value="GIAI ĐOẠN 1: TÍN HIỆU PHẢN HỒI TỪ BÁC SĨ (HUMAN-IN-THE-LOOP FEEDBACK)" vertex="1">
+          <mxGeometry height="155" width="860" x="40" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="sccAfBDX3kes6rZRUCkb-1" edge="1" parent="g1" source="node_pinit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;defaultLabelBackgroundColor=page;labelPadding=0 4;" target="node_expert" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="node_pinit" parent="g1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e0f2fe;strokeColor=#0284c7;fontColor=#0369a1;align=center;shadow=1;" value="Mô hình Hiện hành (Teacher v_{t-1})&#xa;P_init = f_theta_teacher(X_new)&#xa;Dự đoán ban đầu bác sĩ nhìn thấy" vertex="1">
+          <mxGeometry height="65" width="230" x="40" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="node_expert" parent="g1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#15803d;align=center;shadow=1;" value="Nhãn Hiệu chỉnh Chuẩn Y_new&#xa;Bác sĩ / Chuyên gia phôi sửa lỗi:&#xa;Vùng ZP, TE (Ring) + ICM, BC (Polygon)" vertex="1">
+          <mxGeometry height="65" width="230" x="315" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="node_diff" parent="g1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fef3c7;strokeColor=#d97706;fontColor=#92400e;align=center;shadow=1;" value="Phân Tích Lỗi Không Gian (Spatial Error)&#xa;M_error(i,j) = [P_init(i,j) != Y_new(i,j)]&#xa;Xác định chính xác từng pixel bác sĩ đã sửa" vertex="1">
+          <mxGeometry height="65" width="230" x="590" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="eg1_2" edge="1" parent="g1" source="node_expert" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#16a34a;strokeWidth=2;" target="node_diff">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="g2" parent="1" style="swimlane;whiteSpace=wrap;html=1;fontSize=11;fontStyle=1;fillColor=#f8fafc;strokeColor=#cbd5e1;fontColor=#475569;startSize=26;" value="GIAI ĐOẠN 2: THIẾT KẾ LOSS TRỌNG SỐ &amp; BỘ NHỚ TRẢI NGHIỆM (REPLAY / ANCHOR)" vertex="1">
+          <mxGeometry height="155" width="860" x="60" y="310" as="geometry" />
+        </mxCell>
+        <mxCell id="sccAfBDX3kes6rZRUCkb-2" edge="1" parent="g2" source="node_weight" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;defaultLabelBackgroundColor=page;labelPadding=0 4;" target="node_replay" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="node_weight" parent="g2" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#854d0e;align=center;shadow=1;" value="Ma Trận Trọng Số Sửa Lỗi w_new&#xa;w_new(i,j) = 1.0 + beta * M_error(i,j)&#xa;(beta = 0.5 -&gt; x1.5 trọng số điểm ảnh sửa sai)" vertex="1">
+          <mxGeometry height="65" width="250" x="40" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="node_replay" parent="g2" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#9a3412;align=center;shadow=1;" value="Khai Thác Bộ Nhớ Đệm Trải Nghiệm&#xa;• Replay Buffer: K mẫu phôi đã duyệt gần nhất&#xa;• Anchor Set: Các mẫu tiêu chuẩn cố định biên&#xa;(Chống hiện tượng trôi dạt phân phối cục bộ)" vertex="1">
+          <mxGeometry height="65" width="250" x="320" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="node_batch" parent="g2" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#5b21b6;align=center;shadow=1;" value="Mini-batch Huấn luyện Episode&#xa;X = [X_new, X_replay, X_anchor]&#xa;Y = [Y_new, Y_replay, Y_anchor]&#xa;W = [w_new, 1.0, 1.0]" vertex="1">
+          <mxGeometry height="65" width="220" x="600" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="eg2_2" edge="1" parent="g2" source="node_replay" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#ea580c;strokeWidth=2;" target="node_batch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="g3" parent="1" style="swimlane;whiteSpace=wrap;html=1;fontSize=11;fontStyle=1;fillColor=#f8fafc;strokeColor=#cbd5e1;fontColor=#475569;startSize=26;" value="GIAI ĐOẠN 3: THÍCH ỨNG CÓ CHỌN LỌC (SELECTIVE ADAPTATION: norm_and_heads &amp; EMA)" vertex="1">
+          <mxGeometry height="235" width="860" x="60" y="455" as="geometry" />
+        </mxCell>
+        <mxCell id="node_freeze" parent="g3" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#9d174d;align=center;shadow=1;" value="Chiến Lược Đóng Băng (norm_and_heads)&#xa;• Đóng băng toàn bộ UNet Encoder &amp; Decoders sâu (&gt;99.5% weights)&#xa;• Khóa BN running stats (mu, sigma^2 ở chế độ eval())&#xa;• Chỉ mở 311,570 tham số: BN affine + tầng decoder cuối (up4) + 2 Heads" vertex="1">
+          <mxGeometry height="75" width="370" x="40" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="sccAfBDX3kes6rZRUCkb-3" edge="1" parent="g3" source="node_loss" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;defaultLabelBackgroundColor=page;labelPadding=0 4;" target="node_freeze">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="node_loss" parent="g3" style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#6b21a8;align=center;shadow=1;" value="Tối Ưu Hóa Hàm Mất Mát Đa Nhiệm L_total&#xa;L_total = gamma * [L_CE(W) + L_SoftDice + lambda_topo * L_ITGM] + L_CPS&#xa;• CE có trọng số w_new phạt nặng pixel bác sĩ sửa&#xa;• L_ITGM bảo toàn tính liên tục khung xương viền phôi&#xa;• L_CPS bán giám sát giữ nhất quán giữa Net1 và Net2" vertex="1">
+          <mxGeometry height="75" width="370" x="450" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="node_student" parent="g3" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#ffe4e6;strokeColor=#e11d48;fontColor=#9f1239;align=center;shadow=1;" value="Mô hình Student Sau Huấn Luyện (1-3 Epochs)&#xa;theta_student = theta_student - eta * grad(L_total)&#xa;(Học nhanh trên mẫu sửa lỗi và replay)" vertex="1">
+          <mxGeometry height="65" width="370" x="40" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="node_ema" parent="g3" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e0e7ff;strokeColor=#4f46e5;fontColor=#3730a3;align=center;shadow=1;" value="Hòa Trộn Trọng Số Polyak Outer EMA (alpha = 0.65)&#xa;theta_candidate = alpha * theta_teacher + (1 - alpha) * theta_student&#xa;[Ngăn ngừa sốc trọng số, giữ bán kính dịch chuyển tham số trong vùng an toàn]" vertex="1">
+          <mxGeometry height="65" width="370" x="450" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="eg3_1" edge="1" parent="g3" source="node_freeze" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#db2777;strokeWidth=2;" target="node_student">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eg3_3" edge="1" parent="g3" source="node_student" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#4f46e5;strokeWidth=2;" target="node_ema">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="g4" parent="1" style="swimlane;whiteSpace=wrap;html=1;fontSize=11;fontStyle=1;fillColor=#f8fafc;strokeColor=#cbd5e1;fontColor=#475569;startSize=26;" value="GIAI ĐOẠN 4: CỔNG KIỂM ĐỊNH CHỐNG QUÊN (ANTI-CATASTROPHIC FORGETTING GATE)" vertex="1">
+          <mxGeometry height="230" width="860" x="60" y="710" as="geometry" />
+        </mxCell>
+        <mxCell id="node_eval" parent="g4" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e0f2fe;strokeColor=#0284c7;fontColor=#0369a1;align=center;shadow=1;" value="Đánh Giá Candidate Trên Tập Holdout Chuẩn (D_holdout)&#xa;Tính toán mDice gộp và Dice riêng từng lớp (ZP, TE, ICM, BC)" vertex="1">
+          <mxGeometry height="50" width="360" x="40" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="node_gate" parent="g4" style="rhombus;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ccfbf1;strokeColor=#0d9488;fontColor=#115e59;fontStyle=1;align=center;shadow=1;" value="CỔNG KIỂM ĐỊNH CHỐNG QUÊN (4 Bất Đẳng Thức)&#xa;1. mDice(cand) - mDice(v_{t-1}) &gt;= -0.005 (Không tụt quá 0.5% so với bản trước)&#xa;2. mDice(cand) - mDice(v0) &gt;= -0.05 (Không tụt quá 5% so với bản gốc ban đầu)&#xa;3. Dice_c tụt &lt;= 5% vs v_{t-1} trên mọi lớp giải phẫu riêng lẻ&#xa;4. Dice_c tụt &lt;= 8% vs v0 trên mọi lớp giải phẫu riêng lẻ&#xa;5. Tính bất biến: Độ dịch chuyển L2 shift của lớp đóng băng == 0.0" vertex="1">
+          <mxGeometry height="180" width="380" x="440" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="eg4_1" edge="1" parent="g4" source="node_eval" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#0284c7;strokeWidth=2;" target="node_gate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="g5" parent="1" style="swimlane;whiteSpace=wrap;html=1;fontSize=11;fontStyle=1;fillColor=#f8fafc;strokeColor=#cbd5e1;fontColor=#475569;startSize=26;" value="GIAI ĐOẠN 5: TIẾN HÓA MÔ HÌNH HOẶC TỪ CHỐI (MODEL EVOLUTION / REJECTION)" vertex="1">
+          <mxGeometry height="150" width="860" x="60" y="960" as="geometry" />
+        </mxCell>
+        <mxCell id="node_reject" parent="g5" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#b91c1c;align=center;shadow=1;" value="TỪ CHỐI ỨNG VIÊN (REJECTED)&#xa;• Vi phạm bất đẳng thức chống quên&#xa;• status = &#39;rejected&#39;, không lưu file trọng số&#xa;• Giữ nguyên mô hình Teacher v_{t-1} phục vụ tiếp" vertex="1">
+          <mxGeometry height="75" width="340" x="40" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="node_promote" parent="g5" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#15803d;align=center;shadow=1;" value="THĂNG HẠNG THÀNH CÔNG (PROMOTED v_t)&#xa;• Thỏa mãn tuyệt đối 4 chuẩn chống quên&#xa;• Lưu delta delta_theta (~1.25 MB) nguyên tử&#xa;• Teacher mới: theta_teacher^{(t)} = theta_candidate&#xa;• Thêm (X_new, Y_new) vào Replay Buffer" vertex="1">
+          <mxGeometry height="75" width="340" x="480" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="eg5_fail" edge="1" parent="1" source="node_gate" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#ef4444;strokeWidth=2;fontSize=10;fontColor=#dc2626;fontStyle=1;" target="node_reject" value="KHÔNG ĐẠT">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="270" y="920" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="eg5_pass" edge="1" parent="1" source="node_gate" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#16a34a;strokeWidth=2;fontSize=10;fontColor=#16a34a;fontStyle=1;" target="node_promote" value="ĐẠT CHUẨN">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="710" y="940" />
+              <mxPoint x="710" y="940" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_batch_to_freeze" edge="1" parent="1" source="node_batch" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#7c3aed;strokeWidth=2;" target="node_loss">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_loop_back" edge="1" parent="1" source="node_promote" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#16a34a;strokeWidth=2;dashed=1;fontSize=10;fontColor=#15803d;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" target="node_pinit" value="VÒNG LẶP HỌC MÁY KÍN: Teacher v_t phục vụ suy luận cho ca gán nhãn tiếp theo">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="710" y="1135" />
+              <mxPoint x="30" y="1135" />
+              <mxPoint x="30" y="240" />
+              <mxPoint x="215" y="240" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_diff_to_weight" edge="1" parent="1" source="node_diff" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#ca8a04;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="node_weight">
+          <mxGeometry relative="1" x="-0.0165" as="geometry">
+            <Array as="points">
+              <mxPoint x="750" y="230" />
+              <mxPoint x="750" y="260" />
+              <mxPoint x="213" y="260" />
+            </Array>
+            <mxPoint x="638" y="230" as="sourcePoint" />
+            <mxPoint x="213.00000000000023" y="372.5000000000001" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="sccAfBDX3kes6rZRUCkb-5" edge="1" parent="1" source="node_ema" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;defaultLabelBackgroundColor=page;labelPadding=0 4;" target="node_eval">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="695" y="700" />
+              <mxPoint x="280" y="700" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

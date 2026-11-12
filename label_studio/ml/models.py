@@ -1,7 +1,10 @@
 """This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license.
 """
+import copy
 import logging
+import re
 from typing import Dict, List
+from xml.etree import ElementTree
 
 from core.utils.common import conditional_atomic, db_is_not_sqlite, load_func
 from django.conf import settings
@@ -12,6 +15,7 @@ from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
 from ml.api_connector import PREDICT_URL, TIMEOUT_PREDICT, MLApi
 from projects.models import Project
+from rest_framework.exceptions import ValidationError
 from tasks.serializers import PredictionSerializer, TaskSimpleSerializer
 from webhooks.serializers import Webhook, WebhookSerializer
 
@@ -33,6 +37,17 @@ class MLBackendState(models.TextChoices):
 class MLBackendAuth(models.TextChoices):
     NONE = 'NONE', _('None')
     BASIC_AUTH = 'BASIC_AUTH', _('Basic Auth')
+
+
+def _strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _strings(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _strings(v)
 
 
 class MLBackend(models.Model):
@@ -240,9 +255,8 @@ class MLBackend(models.Model):
         request_params = ml_api._prep_prediction_req([task_ser], self.project)
         ml_api_result = ml_api._request(PREDICT_URL, request_params, verbose=False, timeout=TIMEOUT_PREDICT)
 
-        if ml_api_result.is_error:
+        if ml_api_result.is_error:  # still return the debug payload: it carries the backend's error_message
             logger.info(f'Prediction not created for project {self}: {ml_api_result.error_message}')
-            return
 
         results = ml_api_result.response.get('results', None)
 
@@ -289,12 +303,16 @@ class MLBackend(models.Model):
             )
             return []
 
-    def _get_predictions_from_ml_backend(self, serialized_tasks: List[Dict]) -> List[Dict]:
-        result = self.api.make_predictions(serialized_tasks, self.project)
+    def _get_predictions_from_ml_backend(
+        self, serialized_tasks: List[Dict], label_config=None, errors: List[str] = None
+    ) -> List[Dict]:
+        result = self.api.make_predictions(serialized_tasks, self.project, label_config=label_config)
 
         # response validation
         if result.is_error:
             logger.error(f'Error occurred: {result.error_message}')
+            if errors is not None:
+                errors.append(result.error_message or f'ML backend responded with {result.status_code}')
             return []
         elif not isinstance(result.response, dict) or 'results' not in result.response:
             logger.error(f'ML backend returns an incorrect response, it must be a dict: {result.response}')
@@ -365,10 +383,51 @@ class MLBackend(models.Model):
             instances = prediction_ser.save()
         return instances
 
-    def predict_single_task(self, task, update_project_version=False, force=False):
+    def _single_image_request(self, task, image):
+        """The image the user points at (a Repeater frame and/or a valueList slice) is a single image:
+        send it as {data: {image: url}} with a config holding only that Image and the controls targeting it."""
+        url, to_name = (image.get('url'), image.get('to_name')) if isinstance(image, dict) else (None, None)
+        item_index = image.get('item_index') if isinstance(image, dict) else None
+        if (
+            not isinstance(url, str)
+            or not isinstance(to_name, str)
+            or not (item_index is None or (isinstance(item_index, int) and not isinstance(item_index, bool)))
+            or url not in _strings(task.data)
+        ):
+            raise ValidationError({'image': 'url, to_name and item_index must point to an image of this task'})
+        root = ElementTree.fromstring(self.project.label_config)
+        flags = {r.get('indexFlag', '{{idx}}') for r in root.iter('Repeater')} | {'{{idx}}'}
+        view = ElementTree.Element('View')
+        ElementTree.SubElement(view, 'Image', name=to_name, value='$image')
+        for el in root.iter():
+            template = el.get('toName')
+            if not template:
+                continue
+            pattern, name = re.escape(template), el.get('name', '')
+            for flag in flags:
+                pattern = pattern.replace(re.escape(flag), r'(?P<idx>\d+)', 1)
+            match = re.fullmatch(pattern, to_name)
+            if not match:
+                continue
+            control = copy.deepcopy(el)
+            idx = match.groupdict().get('idx')
+            control.set('name', name if idx is None else re.sub('|'.join(map(re.escape, flags)), idx, name))
+            control.set('toName', to_name)
+            view.append(control)
+        task_ser = TaskSimpleSerializer(task).data
+        task_ser['data'] = {'image': url}
+        return [task_ser], ElementTree.tostring(view, encoding='unicode')
+
+    def predict_single_task(self, task, update_project_version=False, force=False, image=None):
         self.update_state()
         if self.not_ready:
             return {'errors': [f'ML backend {self.title} is not ready ({self.get_state_display()})']}
+        label_config = None
+        if image:
+            tasks_ser, label_config = self._single_image_request(task, image)
+            force = True  # stored predictions cover other images of the task
+        else:
+            tasks_ser = TaskSimpleSerializer([task], many=True).data
         # idempotent per model version unless explicitly forced by Smart Prediction
         instance = (
             task.predictions.filter(model_version=self.model_version).order_by('-id').first()
@@ -377,10 +436,13 @@ class MLBackend(models.Model):
         )
         with conditional_atomic(predicate=db_is_not_sqlite):
             if instance is None:
-                tasks_ser = TaskSimpleSerializer([task], many=True).data
-                predictions = self._get_predictions_from_ml_backend(tasks_ser)
+                errors = []
+                predictions = self._get_predictions_from_ml_backend(tasks_ser, label_config, errors)
                 if not predictions:
-                    return {'errors': [f'No prediction returned from {self.title}']}
+                    return {'errors': errors or [f'No prediction returned from {self.title}']}
+                if image and image.get('item_index') is not None:
+                    for r in predictions[0]['result']:
+                        r['item_index'] = image['item_index']
                 # no delete of older predictions: the annotation open in the editor may reference one as parent_prediction
                 prediction_ser = PredictionSerializer(data=predictions[0])
                 prediction_ser.is_valid(raise_exception=True)

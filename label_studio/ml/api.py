@@ -309,7 +309,8 @@ class MLBackendPredictTestAPI(APIView):
         if task_id:
             force = isinstance(request.data, dict) and str(request.data.get('force')).lower() in ('1', 'true')
             task = generics.get_object_or_404(Task, pk=task_id, project=ml_backend.project)
-            result = ml_backend.predict_single_task(task, update_project_version=can_manage, force=force)
+            image = request.data.get('image') if isinstance(request.data, dict) else None
+            result = ml_backend.predict_single_task(task, update_project_version=can_manage, force=force, image=image)
             return Response(result, status=status.HTTP_200_OK)
 
         random = request.query_params.get('random', False)

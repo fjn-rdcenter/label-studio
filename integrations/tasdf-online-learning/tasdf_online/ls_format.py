@@ -22,6 +22,9 @@ NAME_TO_CLASS = {**{v: k for k, v in CLASS_NAMES.items()}, "Blastocoel": BC}
 PAINT_ORDER = (ZP, TE, BC, ICM)
 SIZE = 256
 MIN_AREA_PX = 12  # at SIZE resolution; smaller components are noise
+# 4 px: ~25 vertices/region at IoU 0.95 on project 37 (3 px: ~30 at 0.96, 5 px: ~22 at 0.94)
+# shortcut: one fixed tolerance for every class/project; make it a setting when projects need different trade-offs
+SIMPLIFY_TOL_PX = 4.0  # max distance (px of the mask given to mask_to_results) between true boundary and polygon
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 
@@ -129,36 +132,38 @@ def bio_valid(mask: np.ndarray) -> bool:
 
 
 def _simplify(contour: np.ndarray) -> np.ndarray:
-    # same rule as opencv_segmentation/service.py::_simplify_contour (epsilon = max(1.5, 0.3% perimeter))
-    eps = max(1.5, 0.003 * cv2.arcLength(contour, True))
-    return cv2.approxPolyDP(contour, eps, True).reshape(-1, 2)
+    # Douglas-Peucker: every boundary point stays within SIMPLIFY_TOL_PX of the polygon. Measured on project 37,
+    # DP beats an optimal min-vertex (Imai-Iri) polygon on IoU at equal vertex count, at ~1 ms instead of ~200 ms.
+    return cv2.approxPolyDP(contour, SIMPLIFY_TOL_PX, True).reshape(-1, 2)
 
 
-def _to_perc(contour: np.ndarray, size: int) -> list[list[float]]:
-    return [[round(float(x) * 100.0 / size, 3), round(float(y) * 100.0 / size, 3)] for x, y in contour]
+def _to_perc(contour: np.ndarray, w: int, h: int) -> list[list[float]]:
+    return [[round(float(x) * 100.0 / w, 3), round(float(y) * 100.0 / h, 3)] for x, y in contour]
 
 
-def mask_to_results(mask: np.ndarray, orig_w: int, orig_h: int, from_name: str, to_name: str) -> list[dict]:
-    """Class map (size x size) -> polygonlabels results; rings keep their largest hole."""
-    size = mask.shape[0]
+def mask_to_results(mask: np.ndarray, orig_w: int, orig_h: int, from_name: str, to_name: str,
+                    names: dict = CLASS_NAMES) -> list[dict]:
+    """Class map (H x W, ideally the original image size) -> polygonlabels results; rings keep their largest hole."""
+    h, w = mask.shape
+    min_area = MIN_AREA_PX * (w * h) / (SIZE * SIZE)  # same speck size whatever the mask resolution
     results = []
-    for cls, name in CLASS_NAMES.items():
+    for cls, name in names.items():
         # RETR_CCOMP: level-1 contours are outer boundaries, their children are the holes of that class
         contours, hierarchy = cv2.findContours((mask == cls).astype(np.uint8), cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
         if hierarchy is None:
             continue
         for i, contour in enumerate(contours):
-            if hierarchy[0][i][3] != -1 or cv2.contourArea(contour) < MIN_AREA_PX:
+            if hierarchy[0][i][3] != -1 or cv2.contourArea(contour) < min_area:
                 continue  # holes are handled with their parent; skip specks
             outer = _simplify(contour)
             if len(outer) < 3:
                 continue
-            value = {"points": _to_perc(outer, size), "closed": True, "polygonlabels": [name]}
+            value = {"points": _to_perc(outer, w, h), "closed": True, "polygonlabels": [name]}
             inside = [contours[j] for j in range(len(contours)) if hierarchy[0][j][3] == i]
-            if inside and cv2.contourArea(max(inside, key=cv2.contourArea)) >= MIN_AREA_PX:
+            if inside and cv2.contourArea(max(inside, key=cv2.contourArea)) >= min_area:
                 hole = _simplify(max(inside, key=cv2.contourArea))
                 if len(hole) >= 3:
-                    value.update(ring=True, outerclosed=True, holes=[_to_perc(hole, size)])
+                    value.update(ring=True, outerclosed=True, holes=[_to_perc(hole, w, h)])
             results.append({
                 "id": f"tasdf-{cls}-{i}",
                 "from_name": from_name, "to_name": to_name, "type": "polygonlabels",

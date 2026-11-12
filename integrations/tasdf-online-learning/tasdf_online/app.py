@@ -27,7 +27,7 @@ from flask import Flask, jsonify, request
 from . import __version__, learner
 from .config import Settings, resolve_device
 from .dashboard import create_dashboard_blueprint, render_visuals
-from .ls_format import bio_valid, fetch_image, mask_to_results, results_to_mask
+from .ls_format import CLASS_NAMES, NAME_TO_CLASS, bio_valid, fetch_image, mask_to_results, results_to_mask
 from .registry import Registry
 
 log = logging.getLogger("tasdf_online")
@@ -35,10 +35,10 @@ TRAIN_ACTIONS = {"ANNOTATION_CREATED", "ANNOTATION_UPDATED"}
 MAX_CACHED_MASKS = 512  # 256x256 uint8 each -> ~32 MB
 
 
-def parse_label_config(xml: str | None) -> tuple[str, str, str]:
-    """-> (from_name, to_name, image data key) of the first PolygonLabels and its Image."""
+def parse_label_config(xml: str | None) -> tuple[str, str, str, dict]:
+    """-> (from_name, to_name, image data key, {class: output label}) of the first PolygonLabels and its Image."""
     if not xml:
-        return "seg", "image", "image"
+        return "seg", "image", "image", CLASS_NAMES
     root = ElementTree.fromstring(xml)
     poly = next((e for e in root.iter() if e.tag == "PolygonLabels"), None)
     if poly is None:
@@ -47,7 +47,11 @@ def parse_label_config(xml: str | None) -> tuple[str, str, str]:
     image = next((e for e in root.iter() if e.tag == "Image" and e.get("name") == to_name), None)
     if image is None or not (image.get("value") or "").startswith("$"):
         raise ValueError(f"PolygonLabels toName={to_name!r} must point to an <Image value=\"$key\">")
-    return poly.get("name"), to_name, image.get("value")[1:]
+    labels = {e.get("value") for e in poly.iter("Label")}
+    # emit each class under the alias the project defines (e.g. "Blastocoel" instead of "BC")
+    names = {cls: next((n for n, c in NAME_TO_CLASS.items() if c == cls and n in labels), name)
+             for cls, name in CLASS_NAMES.items()}
+    return poly.get("name"), to_name, image.get("value")[1:], names
 
 
 def _sha256(path: str) -> str:
@@ -143,7 +147,9 @@ class OnlineService:
                     self.last_predicted_mask.popitem(last=False)
         fg = mask > 0
         score = float(conf[torch.from_numpy(fg)].mean()) if fg.any() else 0.0
-        result = mask_to_results(mask, w, h, label[0], label[1])
+        # polygons are traced at the original resolution: tracing the 256 map and scaling it up gives staircase edges
+        full = torch.nn.functional.interpolate(probs[:1].float(), size=(h, w), mode="bilinear", align_corners=False)
+        result = mask_to_results(full[0].argmax(0).numpy().astype(np.uint8), w, h, label[0], label[1], label[3])
         return {"result": result, "score": score, "model_version": version}
 
     # ---- webhook / training ------------------------------------------------------------------
