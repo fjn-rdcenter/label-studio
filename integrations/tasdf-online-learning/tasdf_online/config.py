@@ -32,17 +32,25 @@ class Settings:
     holdout_npz: str
     anchor_npz: str
     state_dir: str
+    registry_dir: str
+    stages_file: str
     ls_url: str
     ls_token: str
-    ls_project_id: int
     ol_token: str
     min_quality_level: int
     refresh_next_n: int
-    train_every_n: int
-    train_steps: int
-    eval_every: int
+    train_cron: str
+    train_min_new: int
+    train_epochs: int
+    train_max_hours: float
     project_val_min: int
     promote_min_gain: float
+    max_train_val_gap: float
+    bn_recal_min: int
+    audit_every: int
+    audit_margin: float
+    min_free_ram_gb: float
+    min_free_vram_gb: float
     holdout_limit: int
     lr: float
     base_channels: int
@@ -59,19 +67,29 @@ class Settings:
             baseline_ckpt=os.getenv("BASELINE_CKPT", ""),
             holdout_npz=os.getenv("HOLDOUT_NPZ", ""),
             anchor_npz=os.getenv("ANCHOR_NPZ", ""),
-            state_dir=os.getenv("STATE_DIR", "/data/tasdf-online"),
+            state_dir=os.getenv("STATE_DIR", "/data/tasdf-online/state"),  # legacy per-project registries (migrated)
+            registry_dir=os.getenv("REGISTRY_DIR", "/data/tasdf-online/registry"),
+            stages_file=os.getenv("STAGES_FILE", "/data/tasdf-online/stages.json"),
             ls_url=os.getenv("LS_URL", "").rstrip("/"),
             ls_token=os.getenv("LS_TOKEN", ""),
-            ls_project_id=_int("LS_PROJECT_ID", 0),
             ol_token=os.getenv("OL_TOKEN", ""),
             min_quality_level=_int("MIN_QUALITY_LEVEL", 2),
             refresh_next_n=_int("REFRESH_NEXT_N", 0),
-            # batch retraining: on N new reviewed train-split annotations or POST /train
-            train_every_n=_int("TRAIN_EVERY_N", 10),
-            train_steps=_int("TRAIN_STEPS", 200),
-            eval_every=_int("EVAL_EVERY", 20),
+            # long-term training (weekly or POST /train): measured 49 ms/image/epoch, 2.4 GB VRAM on an RTX 3060
+            # local time of the container (TZ); empty disables the schedule (POST /train still works)
+            train_cron=os.getenv("TRAIN_CRON", "0 1 * * 0"),
+            train_min_new=_int("TRAIN_MIN_NEW", 10),
+            train_epochs=_int("TRAIN_EPOCHS", 60),
+            train_max_hours=_float("TRAIN_MAX_HOURS", 2),
             project_val_min=_int("PROJECT_VAL_MIN", 10),
             promote_min_gain=_float("PROMOTE_MIN_GAIN", 0.005),
+            max_train_val_gap=_float("MAX_TRAIN_VAL_GAP", 0.15),
+            bn_recal_min=_int("BN_RECAL_MIN", 32),
+            audit_every=_int("AUDIT_EVERY", 4),
+            audit_margin=_float("AUDIT_MARGIN", 0.01),
+            # a job waits (and says why) instead of starting when the machine is short of memory
+            min_free_ram_gb=_float("MIN_FREE_RAM_GB", 3),
+            min_free_vram_gb=_float("MIN_FREE_VRAM_GB", 3),
             holdout_limit=_int("HOLDOUT_LIMIT", 0),
             lr=_float("LR", 3e-4),
             # must match the baseline checkpoint (M2-B: 64 / cross)

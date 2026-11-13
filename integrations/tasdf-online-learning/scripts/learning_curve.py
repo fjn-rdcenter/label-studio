@@ -46,12 +46,9 @@ def ks_for(n: int, start: int = 4) -> list[int]:
 
 
 def dice_per_image(model, xs: torch.Tensor, ys: list[np.ndarray]) -> list[float]:
-    from tasdf_online import learner, trainer
+    from tasdf_online import trainer
 
-    if not len(ys):
-        return []
-    probs, _ = learner.predict_probs(model, xs)
-    return [trainer.mean_dice_ignore(p.argmax(0).numpy(), y) for p, y in zip(probs, ys)]
+    return trainer.mean_dice_per_image(model, xs, ys)
 
 
 def _free() -> None:
@@ -164,28 +161,20 @@ def collect(s, projects: list[int]) -> tuple[list[dict], list[dict], set]:
 
 
 def production_model(s, base, stage: str = "blastocyst"):
-    """Current production weights: bundle registry if present, else the legacy per-project registry."""
+    """Current production weights from the bundle registry (the baseline when no registry exists yet)."""
     import copy
     import os
 
+    from tasdf_online.bundle_registry import BundleRegistry
+
     model = copy.deepcopy(base)
+    path = os.path.join(s.registry_dir, "registry.json")
+    if not os.path.exists(path):
+        return model, "baseline (no registry yet)"
     cpu_base = {k: v.cpu() for k, v in base.state_dict().items()}
-    reg_dir = os.path.join(os.path.dirname(s.state_dir.rstrip("/")) or ".", "registry")
-    if os.path.exists(os.path.join(reg_dir, "registry.json")):
-        import json as _json
-
-        from tasdf_online.bundle_registry import BundleRegistry
-
-        sha = _json.load(open(os.path.join(reg_dir, "registry.json")))["base_sha"]
-        reg = BundleRegistry(reg_dir, cpu_base, sha, [stage])
-        model.load_state_dict(reg.state_for(reg.production, stage))
-        name = reg.model_version(reg.production, stage)
-    else:
-        from tasdf_online.registry import Registry
-
-        reg = Registry(s.state_dir, s.ls_project_id)
-        reg.load_into(model, cpu_base, reg.active)
-        name = f"legacy-{reg.active}"
+    reg = BundleRegistry(s.registry_dir, cpu_base, json.load(open(path))["base_sha"], [stage])
+    model.load_state_dict(reg.state_for(reg.production, stage))
+    name = reg.model_version(reg.production, stage)
     del cpu_base
     gc.collect()
     return model.to(next(base.parameters()).device).eval(), name

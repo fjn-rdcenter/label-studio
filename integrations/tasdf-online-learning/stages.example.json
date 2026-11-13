@@ -1,0 +1,7 @@
+{
+  "blastocyst": {
+    "projects": [36, 37],
+    "holdout_npz": "holdout.npz",
+    "anchors_npz": "anchors.npz"
+  }
+}

@@ -1,4 +1,5 @@
 import dataclasses
+import json
 import sys
 from pathlib import Path
 
@@ -30,8 +31,10 @@ def settings(tmp_path):
     masks = np.stack([blastocyst_mask() for _ in range(2)])
     images = (rng.random((2, 256, 256)) * 255).astype(np.uint8)
     np.savez(tmp_path / "holdout.npz", images=images, masks=masks)
+    (tmp_path / "stages.json").write_text(json.dumps({"blastocyst": {"projects": [7], "holdout_npz": "holdout.npz"}}))
     return dataclasses.replace(
         Settings.from_env(), device="cpu", base_channels=8, state_dir=str(tmp_path / "state"), baseline_ckpt="",
-        holdout_npz=str(tmp_path / "holdout.npz"), anchor_npz="", ls_url="", ls_token="", ls_project_id=7,
-        ol_token="secret", min_quality_level=2, train_steps=2, eval_every=1, train_every_n=1, amp="0",
+        registry_dir=str(tmp_path / "registry"), stages_file=str(tmp_path / "stages.json"),
+        holdout_npz="", anchor_npz="", ls_url="", ls_token="", ol_token="secret", min_quality_level=2,
+        train_epochs=2, train_min_new=1, min_free_ram_gb=0, min_free_vram_gb=0, amp="0",
     )

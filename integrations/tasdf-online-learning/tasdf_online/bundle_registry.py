@@ -139,6 +139,11 @@ class BundleRegistry:
             state.update(torch.load(self.root / "adapters" / stage / f"{ad_id}.pt", map_location="cpu", weights_only=True))
         return state
 
+    def set_meta(self, key: str, value) -> None:
+        """Top-level bookkeeping that must survive restarts (last_data_snapshot, job_count, val_trend)."""
+        self.data[key] = value
+        self._save()
+
     def record(self, bundle: str, **fields) -> None:
         self.data["bundles"][bundle].update(fields)
         self._save()

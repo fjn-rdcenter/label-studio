@@ -14,6 +14,8 @@ services:
     # must own TASDF_DATA_DIR on the host (bash's UID is readonly and not exported, hence TASDF_UID)
     user: "${TASDF_UID:-1000}:${TASDF_GID:-1000}"
     restart: unless-stopped
+    # an out-of-memory training job kills this container, not the host
+    mem_limit: ${TASDF_MEM_LIMIT:-6g}
     depends_on:
       - webapp
     env_file:
@@ -21,7 +23,9 @@ services:
         required: false
     environment:
       LS_URL: http://webapp:8080
-      STATE_DIR: /data/tasdf-online/state
+      STATE_DIR: /data/tasdf-online/state  # legacy per-project registries, moved to registry/legacy on start
+      REGISTRY_DIR: /data/tasdf-online/registry
+      STAGES_FILE: /data/tasdf-online/stages.json
       BASELINE_CKPT: /data/tasdf-online/baseline.pt
       HOLDOUT_NPZ: /data/tasdf-online/holdout.npz
       ANCHOR_NPZ: /data/tasdf-online/anchors.npz  # optional: a missing file only logs a warning
@@ -30,8 +34,11 @@ services:
       # CPU-friendly defaults; raise on GPU
       HOLDOUT_LIMIT: ${TASDF_HOLDOUT_LIMIT:-8}
       DASHBOARD_ENABLED: ${TASDF_DASHBOARD:-1}
+      # long-term training schedule, 5-field cron in TZ local time; empty = off (POST /train still works)
+      TRAIN_CRON: ${TASDF_TRAIN_CRON-0 1 * * 0}
+      TZ: ${TASDF_TZ:-Asia/Ho_Chi_Minh}
     # published for the dev dashboard (product: TASDF_DASHBOARD=0, TASDF_PUBLISH=127.0.0.1:9090);
-    # /setup /predict /webhook have no auth: trusted network only
+    # /setup /predict /webhook /train have no auth: trusted network only
     ports:
       - "${TASDF_PUBLISH:-9090}:9090"
     expose:

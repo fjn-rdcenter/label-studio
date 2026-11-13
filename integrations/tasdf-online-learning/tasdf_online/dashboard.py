@@ -30,19 +30,20 @@ table{width:100%;border-collapse:collapse} th,td{padding:4px 6px;border-bottom:1
   <span id="status" class="pill">connecting...</span>
   <input id="tok" type="password" placeholder="X-OL-Token" style="width:140px">
   <button onclick="saveTok()">Connect</button>
-  <button onclick="act('/train',{})">Train now</button>
+  <button onclick="act('/train',{force:true})">Train now</button>
+  <button onclick="act('/train',{force:true,dry_run:true})">Dry run (1 epoch)</button>
   <button onclick="act('/refresh_ls_predictions',{})">Refresh LS</button>
-  <button class="warn" onclick="act('/rollback',{version:'v0'})">Rollback v0</button>
+  <button class="warn" onclick="act('/rollback',{})">Rollback to previous</button>
   <button onclick="toggleCapture()">Toggle Capture</button>
 </div>
 <div class="card" style="margin-bottom:12px">
-  <h2>1. Latest Training Job</h2>
+  <h2>1. Latest long-term job</h2>
   <div id="job_meta" style="color:#94a3b8">No training job yet.</div>
   <div id="job_loss" style="margin-top:6px;color:#94a3b8"></div>
 </div>
 <div class="grid">
-  <div class="card"><h2>2. Layer Weight Shifts (last job vs v0)</h2><table id="shifts"></table></div>
-  <div class="card"><h2>3. Versions: D10 holdout mDice & project-val Dice</h2><table id="vers"></table></div>
+  <div class="card"><h2>2. Bundles (production / previous / candidates)</h2><table id="vers"></table></div>
+  <div class="card"><h2>3. Held-out val Dice per job (is it really improving?)</h2><table id="trend"></table></div>
 </div>
 <script>
 const tokEl=document.getElementById('tok'); tokEl.value=sessionStorage.getItem('ol_tok')||'';
@@ -51,38 +52,42 @@ function hdr(){return {'X-OL-Token':tokEl.value,'Content-Type':'application/json
 function saveTok(){sessionStorage.setItem('ol_tok',tokEl.value);poll();}
 async function act(p,b){await fetch(p,{method:'POST',headers:hdr(),body:JSON.stringify(b)});poll();}
 async function toggleCapture(){await act('/dashboard/toggle',{enabled:!capOn});}
+function n(v,d=4){return (v===null||v===undefined||Number.isNaN(v))?'-':Number(v).toFixed(d);}
 async function poll(){
   const r=await fetch('/telemetry/live',{headers:hdr()});
   const st=document.getElementById('status');
   if(!r.ok){st.textContent='HTTP '+r.status+' (set X-OL-Token)';st.className='pill bad';return;}
   const d=await r.json(); capOn=d.dashboard_enabled!==false;
-  const p=d.pending||{};
-  st.textContent=`active=${d.active} | ${d.device} | status=${d.status} | training=${d.training} | new ${p.new_train??'?'}/${p.threshold??'?'} (train ${p.train??'?'}, val ${p.val??'?'})`;
+  const p=d.pending||{}, sc=d.schedule||{}, dr=d.last_dry_run;
+  st.textContent=`production=${d.production} | previous=${d.previous} | ${d.device} | ${d.status} | training=${d.training} | `+
+    `next run ${sc.next_run||'off'} (${sc.cron||'-'}) | new labels ${p.new??'?'}/${p.threshold??'?'} (train ${p.train??'?'}, val ${p.val??'?'})`+
+    (dr?` | dry run: ${dr.ms_per_image} ms/img, ${n(dr.peak_vram_mib,0)} MiB`:'')+(d.last_skip?` | postponed: ${d.last_skip.reason}`:'');
   st.className='pill ok';
   if(d.last_error) st.textContent+=` | last_error: ${d.last_error}`;
   const job=(d.jobs||[]).slice(-1)[0];
   if(job){
+    const m=(job.metrics||{})[job.stage]||{};
     document.getElementById('job_meta').textContent=
-      `Job ${job.job_id} -> ${job.version} (${job.seconds}s) | ${job.accepted?'ACCEPTED':'REJECTED'} (${(job.gate_reasons||[]).join(', ')||'ok'}) | `+
-      `train ${(job.train_tasks||[]).length} (new ${job.new_train}), val ${(job.val_tasks||[]).length} | `+
-      `project-val ${(job.active_project_val_dice??NaN).toFixed(4)} -> ${(job.project_val_dice??NaN).toFixed(4)}`+(job.note?` | ${job.note}`:'');
-    document.getElementById('job_loss').textContent='loss/score by step: '+(job.history||[]).filter(h=>h.score!==undefined).map(h=>`${h.step}: ${h.loss}/${h.score}`).join('  ');
-    const sh=job.layer_shifts||{};
-    let rows='<tr><th>Group</th><th>||ΔW||₂ vs v0</th><th>Rel %</th></tr>';
-    for(const [g,v] of Object.entries(sh)){
-      if(typeof v==='object') rows+=`<tr><td>${g}</td><td>${v.l2_shift.toFixed(6)}</td><td>${v.rel_shift_pct.toFixed(4)}%</td></tr>`;
-    }
-    document.getElementById('shifts').innerHTML=rows;
+      `Job ${job.job_id} (${job.kind}) -> ${job.bundle} (${job.seconds}s) | ${job.accepted?'PROMOTED':'REJECTED'} (${(job.gate_reasons||[]).join(', ')||'ok'}) | `+
+      `train ${job.train_images} img, val ${job.val_images} img | val ${n(m.production_val)} -> ${n(m.val)} | train ${n(m.train)}`+(job.note?` | ${job.note}`:'');
+    document.getElementById('job_loss').textContent='epoch: loss / score  '+(job.history||[]).map(h=>`${h.epoch}: ${h.loss}/${h.score??'-'}`).join('  ');
   }
-  let vr='<tr><th>Ver</th><th>Status</th><th>D10 mDice</th><th>ZP</th><th>TE</th><th>ICM</th><th>BC</th><th>project-val</th></tr>';
-  for(const [k,info] of Object.entries(d.version_history||{})){
-    const m=info.metrics||{}, dc=m.dice||{};
-    const stBadge=info.status==='rejected'?`<span class="pill bad">rejected</span>`:(info.status==='accepted'?`<span class="pill ok">accepted</span>`:`<span class="pill">${info.status}</span>`);
-    const gr=(info.gate_reasons||[]).join(', ');
-    vr+=`<tr><td>${k}</td><td>${stBadge}${gr?`<br><small style="color:#f87171">(${gr})</small>`:''}</td><td>${(m.pooled_mDice||0).toFixed(4)}</td>`+
-        `<td>${(dc[1]||0).toFixed(3)}</td><td>${(dc[2]||0).toFixed(3)}</td><td>${(dc[3]||0).toFixed(3)}</td><td>${(dc[4]||0).toFixed(3)}</td><td>${info.project_val_dice==null?'-':info.project_val_dice.toFixed(4)}</td></tr>`;
+  let vr='<tr><th>Bundle</th><th>Status</th><th>Stage</th><th>D10 mDice</th><th>BC</th><th>val</th><th>train</th></tr>';
+  for(const [k,info] of Object.entries(d.bundles||{})){
+    const ptr=k===d.production?' <span class="pill ok">production</span>':(k===d.previous?' <span class="pill">previous</span>':'');
+    for(const [stg,m] of Object.entries(info.metrics||{})){
+      const d10=m.d10||{}, dc=d10.dice||{};
+      const gr=(info.gate_reasons||[]).join(', ');
+      vr+=`<tr><td>${k}${ptr}</td><td>${info.status}${gr?`<br><small style="color:#f87171">${gr}</small>`:''}</td><td>${stg}</td>`+
+          `<td>${n(d10.pooled_mDice)}</td><td>${n(dc[4]??dc['4'],3)}</td><td>${n(m.val)}</td><td>${n(m.train)}</td></tr>`;
+    }
   }
   document.getElementById('vers').innerHTML=vr;
+  let tr='<tr><th>When</th><th>Bundle</th><th>val images</th><th>production val</th><th>candidate val</th><th>Promoted</th></tr>';
+  for(const t of (d.val_trend||[]).slice(-15).reverse()){
+    tr+=`<tr><td>${new Date(t.at*1000).toLocaleString()}</td><td>${t.bundle}</td><td>${t.val_images}</td><td>${n(t.production_val)}</td><td>${n(t.val)}</td><td>${t.accepted?'yes':'no'}</td></tr>`;
+  }
+  document.getElementById('trend').innerHTML=tr;
 }
 setInterval(poll,2000); poll();
 </script></body></html>

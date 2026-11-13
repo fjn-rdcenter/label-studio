@@ -14,12 +14,6 @@ def _ann(ann_id, result, quality=2, updated="2026-11-12T10:00", cancelled=False)
 FULL = mask_to_results(blastocyst_mask(), 256, 256, "seg", "image")
 
 
-def test_split_is_fixed_per_task_and_about_a_fifth():
-    splits = [trainer.split_of(37, t) for t in range(1000)]
-    assert splits == [trainer.split_of(37, t) for t in range(1000)]
-    assert 150 < splits.count("val") < 250
-
-
 def test_select_samples_takes_latest_usable_annotation():
     tasks = [
         {"id": 1, "annotations": [_ann(10, FULL, updated="2026-11-12T09:00"), _ann(11, FULL[:1], updated="2026-11-12T11:00")]},
@@ -43,35 +37,6 @@ def test_mean_dice_ignore_skips_ignored_pixels():
     noisy[:, :128] = 0  # wrong only where the target is ignored
     assert trainer.mean_dice_ignore(noisy, target) == pytest.approx(1.0)
     assert trainer.mean_dice_ignore(noisy, y) < 1.0
-
-
-def test_train_moves_only_trainable_weights_and_keeps_bn_stats():
-    torch.manual_seed(0)
-    base = learner.build_model(base_channels=8).eval()
-    before = {k: v.clone() for k, v in base.state_dict().items()}
-    y = torch.from_numpy(blastocyst_mask().astype(np.int64))[None].repeat(2, 1, 1)
-    y[1, :, :100] = IGNORE  # a partial annotation must not break the loss
-    x = torch.rand(2, 1, 256, 256)
-    anchors = (torch.rand(3, 1, 256, 256), blastocyst_mask()[None].repeat(3, 0).astype(np.int64))
-    scores = iter(range(100))
-    cand, history = trainer.train(base, x, y, anchors, steps=3, lr=1e-2, eval_every=1,
-                                  score_fn=lambda m: float(next(scores)), amp=False)
-    assert len(history) == 3 and all(np.isfinite(h["loss"]) for h in history)
-    shifts = learner.layer_shifts(base, cand, before)
-    assert shifts["encoder_frozen"]["l2_shift"] == 0.0 and shifts["decoder_frozen"]["l2_shift"] == 0.0
-    assert shifts["pixel_head"]["l2_shift"] > 0
-    for name, buf in cand.named_buffers():
-        if "running_" in name:
-            assert torch.equal(buf, before[name]), name
-    assert all(torch.equal(v, before[k]) for k, v in base.state_dict().items())  # base untouched
-
-
-def test_train_keeps_the_best_checkpoint():
-    base = learner.build_model(base_channels=8).eval()
-    y = torch.from_numpy(blastocyst_mask().astype(np.int64))[None]
-    cand, _ = trainer.train(base, torch.rand(1, 1, 256, 256), y, None, steps=3, lr=1e-2, eval_every=1,
-                            score_fn=lambda m: 0.0, amp=False)  # never better than the start
-    assert all(torch.equal(p, q) for p, q in zip(cand.parameters(), base.parameters()))
 
 
 def test_image_split_is_content_based():
@@ -104,3 +69,51 @@ def test_train_epochs_early_stops_and_keeps_best():
                                          amp=False, score_fn=lambda m: 0.0, patience=2)
     assert len(history) == 2  # no gain over the start for 2 epochs
     assert all(torch.equal(p, q) for p, q in zip(cand.parameters(), base.parameters()))
+
+
+def test_recalibrate_bn_changes_only_running_stats():
+    model = learner.build_model(base_channels=8).eval()
+    before = {k: v.clone() for k, v in model.state_dict().items()}
+    trainer.recalibrate_bn(model, torch.rand(4, 1, 256, 256) * 0.2)
+    after = model.state_dict()
+    changed = {k for k in before if not torch.equal(before[k], after[k])}
+    assert changed and all("running_" in k or "num_batches" in k for k in changed)
+    assert not model.training
+
+
+def test_bootstrap_std_shrinks_with_more_images():
+    rng = np.random.default_rng(0)
+    assert trainer.bootstrap_std([0.1]) == 0.0
+    few, many = list(rng.normal(0, 0.05, 5)), list(rng.normal(0, 0.05, 200))
+    assert trainer.bootstrap_std(many) < trainer.bootstrap_std(few)
+
+
+def _decide(cand_val, prod_val, cand_train=None, **kw):
+    args = dict(d10_ok=True, d10_reasons=[], encoder_moved=False, val_min=10, min_gain=0.005, max_gap=0.15)
+    args.update(kw)
+    return trainer.promotion_decision(cand_val=cand_val, prod_val=prod_val, cand_train=cand_train, **args)
+
+
+def test_promotion_requires_a_gain_beyond_noise():
+    prod = [0.80] * 12
+    ok, reasons, note = _decide([0.86] * 12, prod, cand_train=0.9)
+    assert ok and not reasons and note is None
+    noisy = [0.80 + (0.3 if i % 2 else -0.28) for i in range(12)]  # mean +0.01 but huge spread
+    ok, reasons, _ = _decide(noisy, prod, cand_train=0.9)
+    assert not ok and "noise-aware" in reasons[0]
+
+
+def test_promotion_blocks_memorization_forgetting_and_encoder_drift():
+    ok, reasons, _ = _decide([0.86] * 12, [0.80] * 12, cand_train=0.99 + 0.1)
+    assert not ok and any("memorization" in r for r in reasons)
+    ok, reasons, _ = _decide([0.86] * 12, [0.80] * 12, d10_ok=False, d10_reasons=["mDice vs v0 -0.06"])
+    assert not ok and reasons == ["mDice vs v0 -0.06"]
+    ok, reasons, _ = _decide([0.86] * 12, [0.80] * 12, encoder_moved=True)
+    assert not ok and "encoder" in reasons[0]
+
+
+def test_small_val_only_refuses_a_clear_drop():
+    ok, _, note = _decide([0.79, 0.80], [0.80, 0.80])
+    assert ok and note.startswith("insufficient_val")
+    ok, reasons, _ = _decide([0.70, 0.70], [0.80, 0.80])
+    assert not ok and "dropped" in reasons[0]
