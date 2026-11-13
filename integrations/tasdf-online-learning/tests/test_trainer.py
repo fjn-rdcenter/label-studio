@@ -117,3 +117,11 @@ def test_small_val_only_refuses_a_clear_drop():
     assert ok and note.startswith("insufficient_val")
     ok, reasons, _ = _decide([0.70, 0.70], [0.80, 0.80])
     assert not ok and "dropped" in reasons[0]
+
+
+def test_cool_down_waits_only_when_hot():
+    naps = []
+    assert trainer.cool_down(temp=lambda: 60, sleep=naps.append) == 0.0
+    temps = iter([85, 78, 72, 65])
+    assert trainer.cool_down(temp=lambda: next(temps), sleep=naps.append) == 30.0 and naps == [10, 10, 10]
+    assert trainer.cool_down(temp=lambda: None, sleep=naps.append) == 0.0

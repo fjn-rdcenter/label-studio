@@ -16,6 +16,7 @@ import os
 import threading
 import time
 import uuid
+from pathlib import Path
 
 import numpy as np
 import requests
@@ -77,6 +78,19 @@ def _free_ram_gb() -> float:
             if line.startswith("MemAvailable:"):
                 return int(line.split()[1]) / 2 ** 20
     return float("inf")
+
+
+def _on_battery() -> bool:
+    """True only when a battery reports Discharging (a desktop or a host without sysfs counts as mains).
+    USB-C source entries also say "Discharging" while on AC, so only `type == Battery` counts."""
+    for supply in Path("/sys/class/power_supply").glob("*"):
+        try:
+            if (supply / "type").read_text().strip() == "Battery" and \
+                    (supply / "status").read_text().strip() == "Discharging":
+                return True
+        except OSError:
+            pass
+    return False
 
 
 class OnlineService:
@@ -216,7 +230,12 @@ class OnlineService:
         ram = _free_ram_gb()
         if ram < self.s.min_free_ram_gb:
             return False, f"free RAM {ram:.1f} GB < {self.s.min_free_ram_gb} GB"
+        if _on_battery():
+            return False, "running on battery: plug in AC power"
         if self.device.type == "cuda":
+            temp = trainer.gpu_temp()
+            if temp is not None and temp >= trainer.GPU_START_MAX:
+                return False, f"GPU at {temp} C >= {trainer.GPU_START_MAX} C"
             free, _ = torch.cuda.mem_get_info(self.device)
             if free / 2 ** 30 < self.s.min_free_vram_gb:
                 return False, f"free VRAM {free / 2 ** 30:.1f} GB < {self.s.min_free_vram_gb} GB"

@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import random
+import subprocess
 import time
 
 import numpy as np
@@ -72,6 +73,31 @@ def project_dice(model: nn.Module, x: torch.Tensor, ys: list[np.ndarray]) -> flo
     return float(np.mean(per)) if per else None
 
 
+GPU_HOT, GPU_COOL, GPU_START_MAX = 80, 70, 75  # °C; laptops power off under sustained heat
+
+
+def gpu_temp() -> int | None:
+    """GPU temperature via nvidia-smi; None when it cannot be read (CPU runs, tests)."""
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=5).stdout
+        return int(out.split()[0])
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return None
+
+
+def cool_down(temp=gpu_temp, sleep=time.sleep, max_wait: float = 1800) -> float:
+    """At GPU_HOT or above, wait until the GPU is below GPU_COOL (at most `max_wait` s). Returns seconds waited."""
+    t, waited = temp(), 0.0
+    if t is None or t < GPU_HOT:
+        return 0.0
+    while t is not None and t >= GPU_COOL and waited < max_wait:
+        sleep(10)
+        waited += 10
+        t = temp()
+    return waited
+
+
 def augment(x: torch.Tensor, y: torch.Tensor, rng: random.Random) -> tuple[torch.Tensor, torch.Tensor]:
     """Flips, 90-degree rotations and +-15% brightness/contrast; labels follow the geometry."""
     if rng.random() < 0.5:
@@ -134,6 +160,8 @@ def train_epochs(base: nn.Module, x: torch.Tensor, y: torch.Tensor, anchors: tup
             scaler.update()
             sched.step()
         entry = {"epoch": epoch, "loss": round(total / steps_per_epoch, 4), "seconds": round(time.time() - t0, 1)}
+        if device.type == "cuda" and (waited := cool_down()):
+            entry["cooled_seconds"] = waited
         if score_fn:
             score = score_fn(model)
             learner.select_trainable(model, mode)

@@ -58,9 +58,10 @@ def _free() -> None:
 
 
 def run_curve(train: list[dict], val: list[dict], holdout, anchors, models: dict, *, ks: list[int], seeds: int,
-              epochs: int, lr: float, amp: bool, fold=None, on_row=None) -> list[dict]:
+              epochs: int, lr: float, amp: bool, fold=None, on_row=None, done=frozenset(), modes=MODES) -> list[dict]:
     """models: {"base": nn.Module, "production": nn.Module}. Each sample: {"x": (1,H,W) tensor, "y": np.ndarray}.
-    `on_row` gets every measured row as soon as it exists (persist it: a crash keeps what was done)."""
+    `on_row` gets every measured row as soon as it exists (persist it: a crash keeps what was done).
+    `done` holds (mode, k, seed, fold) keys measured by an interrupted run; those are skipped."""
     from tasdf_online import learner, trainer
 
     vx = torch.stack([d["x"] for d in val]) if val else torch.zeros((0, 1, 256, 256))
@@ -74,6 +75,8 @@ def run_curve(train: list[dict], val: list[dict], holdout, anchors, models: dict
             on_row(row)
 
     for ref_name in ("base", "production"):
+        if (f"ref:{ref_name}", 0, None, fold) in done:
+            continue
         ref = models[ref_name]
         emit({"mode": f"ref:{ref_name}", "k": 0, "seed": None,
               "val": float(np.mean(dice_per_image(ref, vx, vys))) if val else None,
@@ -84,7 +87,9 @@ def run_curve(train: list[dict], val: list[dict], holdout, anchors, models: dict
             subset = random.Random(1000 * k + seed).sample(train, k)
             x = torch.stack([d["x"] for d in subset])
             y = torch.from_numpy(np.stack([d["y"] for d in subset]).astype(np.int64))
-            for name, mode, start in MODES:
+            for name, mode, start in modes:
+                if (name, k, seed, fold) in done:
+                    continue
                 t0 = time.time()
                 cand, _ = trainer.train_epochs(models[start], x, y, anchors, mode=mode, epochs=epochs, lr=lr, amp=amp,
                                                seed=seed)
@@ -187,6 +192,8 @@ def main(argv=None) -> None:
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--reports", default="/data/tasdf-online/reports")
+    ap.add_argument("--resume", help="JSONL of an interrupted run: append to it and skip rows it already has")
+    ap.add_argument("--fold", type=int, help="leave-one-out only: run this fold and exit without a report")
     args = ap.parse_args(argv)
 
     from tasdf_online import learner
@@ -211,9 +218,19 @@ def main(argv=None) -> None:
     print(f"train {len(train)} / val {len(val)} annotations from projects {projects}", flush=True)
     out = Path(args.reports)
     out.mkdir(parents=True, exist_ok=True)
-    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M")
-    jsonl = out / f"learning_curve-{stamp}.jsonl"
+    if args.resume:
+        jsonl = Path(args.resume)
+        stamp = jsonl.stem.removeprefix("learning_curve-")
+    else:
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M")
+        jsonl = out / f"learning_curve-{stamp}.jsonl"
+    old = [json.loads(line) for line in jsonl.open()] if jsonl.exists() else []
+    done = frozenset((r["mode"], r["k"], r["seed"], r["fold"]) for r in old)
+    if old:
+        print(f"resuming {jsonl}: {len(old)} rows already measured", flush=True)
     models = {"base": base, "production": prod}
+    # warm start from the baseline is the same run as heavy-base: skip it until a job has promoted a bundle
+    modes = MODES if not prod_name.startswith(("tasdf-base.", "baseline")) else MODES[:2]
 
     def persist(row):
         with jsonl.open("a") as fh:
@@ -223,15 +240,20 @@ def main(argv=None) -> None:
     if len(val) >= VAL_MIN:
         evaluation = f"fixed validation split ({len(val)} images, content hash, never trained on)"
         rows = run_curve(train, val, holdout, anchors, models, ks=ks_for(len(train)), seeds=args.seeds,
-                         epochs=args.epochs, lr=args.lr, amp=amp, on_row=persist)
+                         epochs=args.epochs, lr=args.lr, amp=amp, on_row=persist, done=done, modes=modes)
     else:  # too few validation images for a fixed split: leave-one-out over everything reviewed
         pool = train + val
         evaluation = f"leave-one-out CV estimate over {len(pool)} images (fewer than {VAL_MIN} fixed val images)"
         rows = []
         for i, held in enumerate(pool):
+            if args.fold is not None and i != args.fold:
+                continue
             rest = pool[:i] + pool[i + 1:]
             rows += run_curve(rest, [held], holdout, anchors, models, ks=ks_for(len(rest)), seeds=1,
-                              epochs=args.epochs, lr=args.lr, amp=amp, fold=i, on_row=persist)
+                              epochs=args.epochs, lr=args.lr, amp=amp, fold=i, on_row=persist, done=done, modes=modes)
+        if args.fold is not None:  # one chunk of a run split to keep the GPU cool; report on the final call
+            return
+    rows = old + rows
     summary = summarize(rows)
     at = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     meta = {"at": at, "projects": projects, "n_train": len(train), "n_val": len(val), "epochs": args.epochs,

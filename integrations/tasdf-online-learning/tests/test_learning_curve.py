@@ -34,3 +34,7 @@ def test_run_curve_reports_every_mode_and_reference():
         "at": "t", "projects": [37], "n_train": 3, "n_val": 1, "epochs": 1, "seeds": 1, "annotators": 1,
         "evaluation": "leave-one-out"})
     assert "| heavy-warm | 3 |" in md and "gap" in md
+    done = {(r["mode"], r["k"], r["seed"], r["fold"]) for r in rows if r["k"] < 3}
+    rest = learning_curve.run_curve(train, val, holdout, None, {"base": base, "production": base}, ks=[2, 3],
+                                    seeds=1, epochs=1, lr=1e-3, amp=False, fold=0, done=done)
+    assert {(r["mode"], r["k"]) for r in rest} == {(m, 3) for m in ("light", "heavy-base", "heavy-warm")}

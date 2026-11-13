@@ -50,9 +50,20 @@ Số đo trên RTX 3060 Laptop (6 GB): **49 ms/ảnh/epoch** khi học nặng, V
 
 **Có tốt lên thật không?** Sau mỗi đợt gán nhãn, chạy:
 ```bash
-docker exec -i label-studio-tasdf-online-1 python - --projects 36,37 < integrations/tasdf-online-learning/scripts/learning_curve.py
+I=integrations/tasdf-online-learning C=label-studio-tasdf-online-1
+docker cp $I/scripts/learning_curve.py $C:/tmp/
+SAFE_RUN_CONTAINER=$C $I/scripts/safe_run.sh docker exec $C python /tmp/learning_curve.py --projects 36,37
 ```
 Script so sánh học nhẹ / nặng-từ-base / nặng-từ-production theo số nhãn, trên val chưa từng học (dùng leave-one-out khi val < 10 ảnh). Kết quả ghi vào `reports/history.md`.
+Mỗi dòng đo được ghi ngay vào `reports/learning_curve-<thời điểm>.jsonl`. Bị ngắt thì chạy lại với `--resume <file.jsonl>` để bỏ qua phần đã đo.
+Với leave-one-out, có thể chạy từng fold (`--fold i`, không ghi báo cáo), rồi chạy một lần `--resume` cuối để tổng hợp. Như vậy GPU được nghỉ giữa các fold.
+
+**Chạy an toàn trên laptop.** Máy đã tự tắt khi GPU chạy 100% liên tục. Vì vậy mọi lệnh nặng (pytest, learning curve) chạy qua `scripts/safe_run.sh`:
+- Script từ chối chạy khi máy không cắm sạc.
+- Tạm dừng lệnh khi GPU ≥ 80°C hoặc CPU ≥ 90°C, chạy tiếp khi cả hai < 70°C.
+- Ghi nhiệt độ vào `reports/safe_run.log`.
+
+Job trong backend cũng hoãn khi máy chạy pin hoặc GPU ≥ 75°C, và nghỉ giữa các epoch khi GPU ≥ 80°C.
 
 ## Cấu hình (env)
 

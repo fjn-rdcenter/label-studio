@@ -160,6 +160,7 @@ def _ls_tasks(ids, quality=2):
 @pytest.fixture
 def ls_svc(settings, monkeypatch):
     monkeypatch.setattr(app_module, "fetch_image", lambda url, tok, src, timeout=30: (_img(src), 256, 256))
+    monkeypatch.setattr(app_module, "_on_battery", lambda: False)  # host power state must not decide tests
     s = dataclasses.replace(settings, ls_url="http://ls.test", ls_token="tok")
     tasks = {"list": _ls_tasks(range(1, 13))}
     calls = []
@@ -223,6 +224,12 @@ def test_job_is_postponed_when_memory_is_short(ls_svc):
     ls_svc.s = dataclasses.replace(ls_svc.s, min_free_ram_gb=10 ** 6)
     assert ls_svc.run_job(force=True) is None
     assert "free RAM" in ls_svc.telemetry["last_skip"]["reason"]
+
+
+def test_job_is_postponed_on_battery(ls_svc, monkeypatch):
+    monkeypatch.setattr(app_module, "_on_battery", lambda: True)
+    assert ls_svc.run_job(force=True) is None
+    assert "battery" in ls_svc.telemetry["last_skip"]["reason"]
 
 
 def test_dry_run_measures_without_saving(ls_svc):
