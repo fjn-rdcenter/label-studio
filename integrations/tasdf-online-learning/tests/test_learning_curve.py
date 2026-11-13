@@ -30,6 +30,8 @@ def test_run_curve_reports_every_mode_and_reference():
     modes = {(r["mode"], r["k"]) for r in rows}
     assert {("ref:base", 0), ("ref:production", 0), ("light", 2), ("heavy-base", 3), ("heavy-warm", 3)} <= modes
     assert all(0.0 <= r["val"] <= 1.0 for r in rows)
+    two_folds = rows + [dict(r, fold=1) for r in rows]
+    assert [a["mode"] for a in learning_curve.summarize(two_folds)].count("ref:base") == 1
     md = learning_curve.to_markdown(learning_curve.summarize(rows), {
         "at": "t", "projects": [37], "n_train": 3, "n_val": 1, "epochs": 1, "seeds": 1, "annotators": 1,
         "evaluation": "leave-one-out"})

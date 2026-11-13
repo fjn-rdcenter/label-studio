@@ -106,7 +106,7 @@ def run_curve(train: list[dict], val: list[dict], holdout, anchors, models: dict
 
 def summarize(rows: list[dict]) -> list[dict]:
     out = []
-    for name in [r["mode"] for r in rows if r["k"] == 0] + [m for m, _, _ in MODES]:
+    for name in dict.fromkeys([r["mode"] for r in rows if r["k"] == 0] + [m for m, _, _ in MODES]):  # once per fold
         for k in sorted({r["k"] for r in rows if r["mode"] == name}):
             g = [r for r in rows if r["mode"] == name and r["k"] == k]
             agg = {"mode": name, "k": k, "n": len(g)}
@@ -271,7 +271,7 @@ def main(argv=None) -> None:
     summary = summarize(rows)
     at = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     meta = {"at": at, "projects": projects, "n_train": len(train), "n_val": len(val), "epochs": args.epochs,
-            "seeds": args.seeds, "production": prod_name, "annotators": len(annotators - {None}),
+            "seeds": args.seeds if len(val) >= VAL_MIN else 1, "production": prod_name, "annotators": len(annotators - {None}),
             "evaluation": evaluation}
     md = to_markdown(summary, meta)
     (out / f"learning_curve-{stamp}.md").write_text(md)
