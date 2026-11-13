@@ -72,3 +72,35 @@ def test_train_keeps_the_best_checkpoint():
     cand, _ = trainer.train(base, torch.rand(1, 1, 256, 256), y, None, steps=3, lr=1e-2, eval_every=1,
                             score_fn=lambda m: 0.0, amp=False)  # never better than the start
     assert all(torch.equal(p, q) for p, q in zip(cand.parameters(), base.parameters()))
+
+
+def test_image_split_is_content_based():
+    a = np.random.default_rng(0).random((256, 256)).astype(np.float32)
+    assert trainer.image_split(a) == trainer.image_split(a.copy())
+    splits = [trainer.image_split(np.full((4, 4), i, np.float32)) for i in range(500)]
+    assert 60 < splits.count("val") < 140
+
+
+def test_heavy_mode_trains_decoder_and_keeps_encoder():
+    torch.manual_seed(0)
+    base = learner.build_model(base_channels=8).eval()
+    before = {k: v.clone() for k, v in base.state_dict().items()}
+    y = torch.from_numpy(blastocyst_mask().astype(np.int64))[None].repeat(3, 1, 1)
+    anchors = (torch.rand(4, 1, 256, 256), blastocyst_mask()[None].repeat(4, 0).astype(np.int64))
+    cand, history = trainer.train_epochs(base, torch.rand(3, 1, 256, 256), y, anchors, mode="heavy", epochs=2,
+                                         lr=1e-2, amp=False)
+    assert len(history) == 2 and all(np.isfinite(h["loss"]) for h in history)
+    shifts = learner.layer_shifts(base, cand, before)
+    assert shifts["encoder_frozen"]["l2_shift"] == 0.0
+    assert shifts["decoder_frozen"]["l2_shift"] > 0  # up1-up3 move in heavy mode only
+    light, _ = trainer.train_epochs(base, torch.rand(3, 1, 256, 256), y, None, mode="light", epochs=1, lr=1e-2, amp=False)
+    assert learner.layer_shifts(base, light, before)["decoder_frozen"]["l2_shift"] == 0.0
+
+
+def test_train_epochs_early_stops_and_keeps_best():
+    base = learner.build_model(base_channels=8).eval()
+    y = torch.from_numpy(blastocyst_mask().astype(np.int64))[None]
+    cand, history = trainer.train_epochs(base, torch.rand(1, 1, 256, 256), y, None, mode="light", epochs=10, lr=1e-2,
+                                         amp=False, score_fn=lambda m: 0.0, patience=2)
+    assert len(history) == 2  # no gain over the start for 2 epochs
+    assert all(torch.equal(p, q) for p, q in zip(cand.parameters(), base.parameters()))

@@ -22,7 +22,18 @@ def is_bn(name: str) -> bool:
     return ".double_conv.1." in name or ".double_conv.4." in name
 
 
-def is_trainable(name: str) -> bool:
+DECODER_BLOCKS = ("up1", "up2", "up3", "up4")
+# "light" = norm_and_heads (BN affine + up4 + heads); "heavy" = whole decoder + BN affine + heads, encoder frozen
+MODES = ("light", "heavy")
+
+
+def is_decoder(name: str) -> bool:
+    return any(f".{b}." in name for b in DECODER_BLOCKS)
+
+
+def is_trainable(name: str, mode: str = "light") -> bool:
+    if mode == "heavy":
+        return is_bn(name) or is_decoder(name) or ".heads." in name
     return is_bn(name) or ".up4." in name or ".heads." in name
 
 
@@ -36,11 +47,11 @@ def load_state_dict(path: str) -> dict:
     return obj.get("model_state_dict", obj) if isinstance(obj, dict) else obj
 
 
-def select_trainable(model: nn.Module) -> int:
-    """Freeze everything except norm_and_heads; keep BN running stats frozen (eval mode)."""
+def select_trainable(model: nn.Module, mode: str = "light") -> int:
+    """Freeze everything outside the `mode` subset; keep BN running stats frozen (eval mode)."""
     count = 0
     for name, p in model.named_parameters():
-        p.requires_grad_(is_trainable(name))
+        p.requires_grad_(is_trainable(name, mode))
         count += p.numel() if p.requires_grad else 0
     model.train()
     for m in model.modules():
@@ -49,8 +60,8 @@ def select_trainable(model: nn.Module) -> int:
     return count
 
 
-def trainable_state(model: nn.Module) -> dict:
-    return {n: p.detach().cpu().clone() for n, p in model.named_parameters() if is_trainable(n)}
+def trainable_state(model: nn.Module, mode: str = "light") -> dict:
+    return {n: p.detach().cpu().clone() for n, p in model.named_parameters() if is_trainable(n, mode)}
 
 
 @torch.no_grad()
