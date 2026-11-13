@@ -202,7 +202,7 @@ def main(argv=None) -> None:
     ap.add_argument("--projects", default="36,37")
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--seeds", type=int, default=3)
-    ap.add_argument("--lr", type=float, default=3e-4)
+    ap.add_argument("--lr", type=float, default=3e-5)
     ap.add_argument("--reports", default="/data/tasdf-online/reports")
     ap.add_argument("--resume", help="JSONL of an interrupted run: append to it and skip rows it already has")
     ap.add_argument("--fold", type=int, help="leave-one-out only: run this fold and exit without a report")

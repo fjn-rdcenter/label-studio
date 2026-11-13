@@ -91,7 +91,7 @@ class Settings:
             min_free_ram_gb=_float("MIN_FREE_RAM_GB", 3),
             min_free_vram_gb=_float("MIN_FREE_VRAM_GB", 3),
             holdout_limit=_int("HOLDOUT_LIMIT", 0),
-            lr=_float("LR", 3e-4),
+            lr=_float("LR", 3e-5),  # 3e-4 wrecked the pretrained decoder in its first steps
             # must match the baseline checkpoint (M2-B: 64 / cross)
             base_channels=_int("BASE_CHANNELS", 64),
             erosion=os.getenv("EROSION", "cross"),

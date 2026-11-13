@@ -93,7 +93,7 @@ Lưu ý:
 | `HOLDOUT_NPZ` / `HOLDOUT_LIMIT` | — / 0 | D10/valid (8 ảnh, đủ 4 lớp) cho cổng chống quên. 0 = dùng toàn bộ |
 | `ANCHOR_NPZ` | — | D10/train (32 mask) trộn vào mỗi bước huấn luyện, không vượt số mẫu dự án. Tuỳ chọn; thiếu file thì chỉ học trên dữ liệu dự án |
 | `TRAIN_CRON` / `TZ` | `0 1 * * 0` / `Asia/Ho_Chi_Minh` | Lịch học dài hạn (cron 5 trường, giờ địa phương); rỗng thì tắt lịch. Trong compose: `TASDF_TRAIN_CRON`, `TASDF_TZ` |
-| `TRAIN_MIN_NEW` / `TRAIN_EPOCHS` / `TRAIN_MAX_HOURS` / `LR` | 10 / 60 / 2 / 3e-4 | Ngưỡng nhãn mới để chạy theo lịch; số epoch (cố định); giới hạn giờ; learning rate |
+| `TRAIN_MIN_NEW` / `TRAIN_EPOCHS` / `TRAIN_MAX_HOURS` / `LR` | 10 / 60 / 2 / 3e-5 | Ngưỡng nhãn mới để chạy theo lịch; số epoch (cố định); giới hạn giờ; learning rate (3e-4 làm hỏng decoder đã học ngay từ epoch đầu: loss 1,9 → 5,0) |
 | `PROJECT_VAL_MIN` / `PROMOTE_MIN_GAIN` / `MAX_TRAIN_VAL_GAP` | 10 / 0.005 / 0.15 | Cổng: từ bao nhiêu ảnh val thì bắt buộc tăng (vượt cả nhiễu bootstrap); giới hạn khoảng cách train − val |
 | `AUDIT_EVERY` / `AUDIT_MARGIN` / `BN_RECAL_MIN` | 4 / 0.01 / 32 | Kiểm tra định kỳ bằng một bản học từ baseline; ngưỡng ảnh để hiệu chỉnh thống kê BN |
 | `MIN_FREE_RAM_GB` / `MIN_FREE_VRAM_GB` | 3 / 3 | Job hoãn (ghi lý do) khi bộ nhớ trống thấp hơn. Compose giới hạn container `TASDF_MEM_LIMIT=6g` |

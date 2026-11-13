@@ -51,12 +51,16 @@ def select_samples(tasks: list[dict], project_id: int, from_name: str | None, mi
 
 
 def mean_dice_ignore(pred: np.ndarray, y: np.ndarray) -> float:
-    """Mean Dice over foreground classes present in pred or target, ignoring IGNORE pixels."""
+    """Mean Dice over the foreground classes drawn in the target, ignoring IGNORE pixels.
+
+    A class the annotator did not draw is skipped: inside the ZP it is IGNORE, so a few predicted pixels of it on
+    labelled ground would otherwise score that whole class 0 (measured: 0.29 instead of 0.86 on a BC-only image).
+    Predicting it there still costs, through the recall of the class those pixels really belong to."""
     valid = y != IGNORE
     per = []
     for c in range(1, learner.NUM_CLASSES):
         p, t = (pred == c) & valid, (y == c)
-        if p.sum() + t.sum():
+        if t.any():
             per.append(2 * (p & t).sum() / (p.sum() + t.sum()))
     return float(np.mean(per)) if per else 1.0
 

@@ -39,6 +39,15 @@ def test_mean_dice_ignore_skips_ignored_pixels():
     assert trainer.mean_dice_ignore(noisy, y) < 1.0
 
 
+def test_mean_dice_ignore_skips_classes_the_annotator_did_not_draw():
+    y = blastocyst_mask()
+    bc_only = np.where(y == 4, 4, IGNORE).astype(np.uint8)  # only BC drawn, no ZP: the rest is IGNORE
+    pred = y.copy()
+    pred[y == 4] = 4
+    pred[np.argwhere(y == 4)[0][0], np.argwhere(y == 4)[0][1]] = 3  # one stray ICM pixel on drawn BC
+    assert trainer.mean_dice_ignore(pred, bc_only) > 0.99  # was 0.5: the stray pixel scored ICM 0
+
+
 def test_image_split_is_content_based():
     a = np.random.default_rng(0).random((256, 256)).astype(np.float32)
     assert trainer.image_split(a) == trainer.image_split(a.copy())
