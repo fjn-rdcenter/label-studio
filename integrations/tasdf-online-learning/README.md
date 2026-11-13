@@ -165,5 +165,5 @@ Test CUDA tự bỏ qua nếu máy không có GPU.
 
 - Mỗi ring polygon chỉ có **một lỗ**, đúng như giới hạn của editor fork.
 - Phần A chỉ huấn luyện **một giai đoạn** (`blastocyst`). Học chung nhiều giai đoạn với tập lớp khác nhau thuộc phần C.
-- Khi val có dưới `PROJECT_VAL_MIN` ảnh, cổng chỉ chặn trường hợp giảm rõ (ghi `insufficient_val`) và chưa đòi phải tăng. Hãy gán thêm nhãn và theo dõi `reports/history.md`.
+- Khi val có dưới `PROJECT_VAL_MIN` ảnh, job vẫn học và ghi kết quả (`insufficient_val`) nhưng **không bao giờ tự thăng cấp**: vài ảnh chưa chứng minh được gì. Muốn dùng bản đó thì `POST /promote` với `override` và lý do. Hãy gán thêm nhãn và theo dõi `reports/history.md`.
 - Tầng ngắn hạn (adapter theo phôi) và script cắt phôi khỏi đĩa thuộc phần B, chưa làm.

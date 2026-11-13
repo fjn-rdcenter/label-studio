@@ -206,9 +206,10 @@ def bootstrap_std(deltas: list[float], n: int = 1000, seed: int = 0) -> float:
 
 def promotion_decision(*, cand_val: list[float], prod_val: list[float], cand_train: float | None,
                        d10_ok: bool, d10_reasons: list[str], encoder_moved: bool, val_min: int, min_gain: float,
-                       max_gap: float, small_val_tolerance: float = 0.01) -> tuple[bool, list[str], str | None]:
+                       max_gap: float) -> tuple[bool, list[str], str | None]:
     """Promote only on a real, held-out gain: beyond bootstrap noise, without memorization, without forgetting.
-    cand_val/prod_val are per-image Dice of candidate and production on the same never-trained images."""
+    cand_val/prod_val are per-image Dice of candidate and production on the same never-trained images.
+    Fewer than `val_min` val images is no evidence: the candidate is recorded, never promoted by the gate."""
     reasons, note = list(d10_reasons) if not d10_ok else [], None
     if encoder_moved:
         reasons.append("encoder weights changed")
@@ -221,10 +222,10 @@ def promotion_decision(*, cand_val: list[float], prod_val: list[float], cand_tra
                 reasons.append(f"val gain {gain:+.4f} < required {margin:.4f} (noise-aware)")
         else:
             note = f"insufficient_val ({len(cand_val)} < {val_min})"
-            if gain < -small_val_tolerance:
-                reasons.append(f"val dropped {gain:+.4f}")
+            reasons.append(f"only {len(cand_val)} val images < {val_min}: measured, not promoted (gain {gain:+.4f})")
         if cand_train is not None and cand_train - float(np.mean(cand_val)) > max_gap:
             reasons.append(f"train-val gap {cand_train - float(np.mean(cand_val)):.4f} > {max_gap} (memorization)")
     else:
         note = "no_val"
+        reasons.append(f"no val images (< {val_min}): measured, not promoted")
     return not reasons, reasons, note

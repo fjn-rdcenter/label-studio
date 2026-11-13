@@ -112,7 +112,7 @@ Giữ lại: `production`, `previous` và **3 bộ gần nhất**. Decoder/adapt
 1. Không quên: `learner.gate` trên `holdout_npz` của giai đoạn (D10/valid đủ 4 lớp), so với production và với `tasdf-base`.
 2. Tốt hơn thật trên val của giai đoạn, so với production:
    - Val ≥ 10 ảnh: Dice phải tăng ≥ max(`PROMOTE_MIN_GAIN=0.005`, 2 × độ lệch chuẩn bootstrap của chênh lệch Dice theo ảnh).
-   - Val ít hơn: không giảm quá 0.01, và ghi `insufficient_val`.
+   - Val ít hơn: không thăng cấp, chỉ ghi kết quả và `insufficient_val` (chốt 2026-11-13 sau learning curve mốc: học lại với 8 nhãn còn kém baseline).
 3. Không học vẹt: Dice train − Dice val ≤ `MAX_TRAIN_VAL_GAP=0.15`.
 4. Encoder không đổi (kiểm tra bằng `learner.layer_shifts`).
 

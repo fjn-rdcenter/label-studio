@@ -112,11 +112,11 @@ def test_promotion_blocks_memorization_forgetting_and_encoder_drift():
     assert not ok and "encoder" in reasons[0]
 
 
-def test_small_val_only_refuses_a_clear_drop():
-    ok, _, note = _decide([0.79, 0.80], [0.80, 0.80])
-    assert ok and note.startswith("insufficient_val")
-    ok, reasons, _ = _decide([0.70, 0.70], [0.80, 0.80])
-    assert not ok and "dropped" in reasons[0]
+def test_small_or_missing_val_is_never_promoted():
+    ok, reasons, note = _decide([0.95, 0.95], [0.80, 0.80])  # a big gain on 2 images is still no evidence
+    assert not ok and note.startswith("insufficient_val") and "not promoted" in reasons[0]
+    ok, reasons, note = _decide([], [])
+    assert not ok and note == "no_val"
 
 
 def test_cool_down_waits_only_when_hot():
