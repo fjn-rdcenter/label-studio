@@ -80,3 +80,40 @@ class Settings:
             request_timeout=_float("LS_TIMEOUT", 30),
             dashboard_enabled=os.getenv("DASHBOARD_ENABLED", "1").strip().lower() in {"1", "true", "on", "yes"},
         )
+
+
+def load_stages(path: str) -> dict:
+    """stages.json: {stage: {"projects": [ids], "holdout_npz": file, "anchors_npz": file, ...}}.
+    Fails fast on a project mapped to two stages or a missing npz (relative paths are next to the file)."""
+    import json
+    from pathlib import Path
+
+    p = Path(path)
+    stages = json.loads(p.read_text(encoding="utf-8"))
+    if not isinstance(stages, dict) or not stages:
+        raise ValueError(f"{path}: expected a non-empty {{stage: config}} object")
+    seen: dict[int, str] = {}
+    for stage, cfg in stages.items():
+        projects = cfg.get("projects")
+        if not isinstance(projects, list) or not all(isinstance(x, int) for x in projects):
+            raise ValueError(f"{path}: stage {stage!r} needs an integer 'projects' list")
+        for pid in projects:
+            if pid in seen:
+                raise ValueError(f"{path}: project {pid} is in both {seen[pid]!r} and {stage!r}")
+            seen[pid] = stage
+        for key in ("holdout_npz", "anchors_npz"):
+            if cfg.get(key):
+                f = Path(cfg[key]) if Path(cfg[key]).is_absolute() else p.parent / cfg[key]
+                if not f.exists():
+                    raise ValueError(f"{path}: {key} {f} of stage {stage!r} does not exist")
+                cfg[key] = str(f)
+    return stages
+
+
+def stage_of(stages: dict, project_id) -> str | None:
+    """LS sends the project as "<id>.<created_ts>" or an int."""
+    try:
+        pid = int(str(project_id).split(".")[0])
+    except ValueError:
+        return None
+    return next((s for s, cfg in stages.items() if pid in cfg["projects"]), None)
