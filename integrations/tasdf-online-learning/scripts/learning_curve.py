@@ -12,12 +12,17 @@ with a fixed epoch budget (no early stopping, so nothing is selected on the eval
   val   : Dice on the fixed project validation images (content-hash split, never trained on)
   d10   : mDice on the D10/valid holdout (forgetting)
   train : Dice on the k training images; train - val is the memorization gap
-Results: <reports>/learning_curve-<timestamp>.{json,md} and one line appended to <reports>/history.md.
+With fewer than VAL_MIN fixed validation images it switches to leave-one-out cross-validation over all
+reviewed annotations (each image is the held-out one in turn) and labels the result as a CV estimate.
+Memory: one torch process at a time; base/production stay on the GPU, each candidate is freed after scoring,
+and every measured row is appended to <reports>/learning_curve-<timestamp>.jsonl right away.
+Results: <reports>/learning_curve-<timestamp>.{jsonl,md} and one line appended to <reports>/history.md.
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import gc
 import json
 import random
 import statistics as st
@@ -29,6 +34,7 @@ import numpy as np
 import torch
 
 MODES = (("light", "light", "base"), ("heavy-base", "heavy", "base"), ("heavy-warm", "heavy", "production"))
+VAL_MIN = 10
 
 
 def ks_for(n: int, start: int = 4) -> list[int]:
@@ -48,20 +54,34 @@ def dice_per_image(model, xs: torch.Tensor, ys: list[np.ndarray]) -> list[float]
     return [trainer.mean_dice_ignore(p.argmax(0).numpy(), y) for p, y in zip(probs, ys)]
 
 
+def _free() -> None:
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def run_curve(train: list[dict], val: list[dict], holdout, anchors, models: dict, *, ks: list[int], seeds: int,
-              epochs: int, lr: float, amp: bool) -> list[dict]:
-    """models: {"base": nn.Module, "production": nn.Module}. Each sample: {"x": (1,H,W) tensor, "y": np.ndarray}."""
+              epochs: int, lr: float, amp: bool, fold=None, on_row=None) -> list[dict]:
+    """models: {"base": nn.Module, "production": nn.Module}. Each sample: {"x": (1,H,W) tensor, "y": np.ndarray}.
+    `on_row` gets every measured row as soon as it exists (persist it: a crash keeps what was done)."""
     from tasdf_online import learner, trainer
 
     vx = torch.stack([d["x"] for d in val]) if val else torch.zeros((0, 1, 256, 256))
     vys = [d["y"] for d in val]
     rows = []
+
+    def emit(row):
+        row["fold"] = fold
+        rows.append(row)
+        if on_row:
+            on_row(row)
+
     for ref_name in ("base", "production"):
         ref = models[ref_name]
-        rows.append({"mode": f"ref:{ref_name}", "k": 0, "seed": None,
-                     "val": float(np.mean(dice_per_image(ref, vx, vys))) if val else None,
-                     "d10": learner.evaluate(ref, *holdout)["pooled_mDice"] if holdout is not None else None,
-                     "train": None, "seconds": 0.0})
+        emit({"mode": f"ref:{ref_name}", "k": 0, "seed": None,
+              "val": float(np.mean(dice_per_image(ref, vx, vys))) if val else None,
+              "d10": learner.evaluate(ref, *holdout)["pooled_mDice"] if holdout is not None else None,
+              "train": None, "seconds": 0.0})
     for k in ks:
         for seed in range(seeds):
             subset = random.Random(1000 * k + seed).sample(train, k)
@@ -71,14 +91,13 @@ def run_curve(train: list[dict], val: list[dict], holdout, anchors, models: dict
                 t0 = time.time()
                 cand, _ = trainer.train_epochs(models[start], x, y, anchors, mode=mode, epochs=epochs, lr=lr, amp=amp,
                                                seed=seed)
-                rows.append({"mode": name, "k": k, "seed": seed,
-                             "val": float(np.mean(dice_per_image(cand, vx, vys))) if val else None,
-                             "d10": learner.evaluate(cand, *holdout)["pooled_mDice"] if holdout is not None else None,
-                             "train": float(np.mean(dice_per_image(cand, x, [d["y"] for d in subset]))),
-                             "seconds": round(time.time() - t0, 1)})
+                emit({"mode": name, "k": k, "seed": seed,
+                      "val": float(np.mean(dice_per_image(cand, vx, vys))) if val else None,
+                      "d10": learner.evaluate(cand, *holdout)["pooled_mDice"] if holdout is not None else None,
+                      "train": float(np.mean(dice_per_image(cand, x, [d["y"] for d in subset]))),
+                      "seconds": round(time.time() - t0, 1)})
                 del cand
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                _free()
     return rows
 
 
@@ -103,6 +122,7 @@ def to_markdown(summary: list[dict], meta: dict) -> str:
     lines = [f"# Learning curve {meta['at']}", "",
              f"- Train/val annotations: {meta['n_train']} / {meta['n_val']} (projects {meta['projects']}, "
              f"annotators {meta['annotators']}); epochs {meta['epochs']}, seeds {meta['seeds']}",
+             f"- Evaluation: {meta['evaluation']}",
              "- val = project validation Dice (never trained on), d10 = D10/valid mDice, gap = train − val", "",
              "| mode | k | val | d10 | train | gap | s |", "|---|---|---|---|---|---|---|"]
     for a in summary:
@@ -143,16 +163,32 @@ def collect(s, projects: list[int]) -> tuple[list[dict], list[dict], set]:
     return train, val, annotators
 
 
-def production_model(s, base):
-    """Current production weights (bundle registry once it exists, else the legacy per-project registry)."""
+def production_model(s, base, stage: str = "blastocyst"):
+    """Current production weights: bundle registry if present, else the legacy per-project registry."""
     import copy
-
-    from tasdf_online.registry import Registry
+    import os
 
     model = copy.deepcopy(base)
-    reg = Registry(s.state_dir, s.ls_project_id)
-    reg.load_into(model, {k: v.cpu() for k, v in base.state_dict().items()}, reg.active)
-    return model.to(next(base.parameters()).device).eval(), reg.active
+    cpu_base = {k: v.cpu() for k, v in base.state_dict().items()}
+    reg_dir = os.path.join(os.path.dirname(s.state_dir.rstrip("/")) or ".", "registry")
+    if os.path.exists(os.path.join(reg_dir, "registry.json")):
+        import json as _json
+
+        from tasdf_online.bundle_registry import BundleRegistry
+
+        sha = _json.load(open(os.path.join(reg_dir, "registry.json")))["base_sha"]
+        reg = BundleRegistry(reg_dir, cpu_base, sha, [stage])
+        model.load_state_dict(reg.state_for(reg.production, stage))
+        name = reg.model_version(reg.production, stage)
+    else:
+        from tasdf_online.registry import Registry
+
+        reg = Registry(s.state_dir, s.ls_project_id)
+        reg.load_into(model, cpu_base, reg.active)
+        name = f"legacy-{reg.active}"
+    del cpu_base
+    gc.collect()
+    return model.to(next(base.parameters()).device).eval(), name
 
 
 def main(argv=None) -> None:
@@ -169,10 +205,14 @@ def main(argv=None) -> None:
     from tasdf_online.config import Settings, resolve_device
 
     s = Settings.from_env()
+    torch.set_num_threads(4)
     device = resolve_device(s.device)
     amp = device.type == "cuda"
     base = learner.build_model(s.base_channels, s.erosion)
-    base.load_state_dict(learner.load_state_dict(s.baseline_ckpt))
+    ckpt = learner.load_state_dict(s.baseline_ckpt)
+    base.load_state_dict(ckpt)
+    del ckpt  # the checkpoint file is ~745 MB: never keep a second CPU copy around
+    gc.collect()
     base = base.to(device).eval()
     prod, prod_name = production_model(s, base)
     holdout = _load_npz(s.holdout_npz, s.holdout_limit)
@@ -180,16 +220,34 @@ def main(argv=None) -> None:
     projects = [int(p) for p in args.projects.split(",") if p]
     train, val, annotators = collect(s, projects)
     print(f"train {len(train)} / val {len(val)} annotations from projects {projects}", flush=True)
-    rows = run_curve(train, val, holdout, anchors, {"base": base, "production": prod}, ks=ks_for(len(train)),
-                     seeds=args.seeds, epochs=args.epochs, lr=args.lr, amp=amp)
-    summary = summarize(rows)
-    at = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
-    meta = {"at": at, "projects": projects, "n_train": len(train), "n_val": len(val), "epochs": args.epochs,
-            "seeds": args.seeds, "production": prod_name, "annotators": len(annotators - {None})}
     out = Path(args.reports)
     out.mkdir(parents=True, exist_ok=True)
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M")
-    (out / f"learning_curve-{stamp}.json").write_text(json.dumps({"meta": meta, "rows": rows}, indent=1))
+    jsonl = out / f"learning_curve-{stamp}.jsonl"
+    models = {"base": base, "production": prod}
+
+    def persist(row):
+        with jsonl.open("a") as fh:
+            fh.write(json.dumps(row) + "\n")
+        print(json.dumps(row), flush=True)
+
+    if len(val) >= VAL_MIN:
+        evaluation = f"fixed validation split ({len(val)} images, content hash, never trained on)"
+        rows = run_curve(train, val, holdout, anchors, models, ks=ks_for(len(train)), seeds=args.seeds,
+                         epochs=args.epochs, lr=args.lr, amp=amp, on_row=persist)
+    else:  # too few validation images for a fixed split: leave-one-out over everything reviewed
+        pool = train + val
+        evaluation = f"leave-one-out CV estimate over {len(pool)} images (fewer than {VAL_MIN} fixed val images)"
+        rows = []
+        for i, held in enumerate(pool):
+            rest = pool[:i] + pool[i + 1:]
+            rows += run_curve(rest, [held], holdout, anchors, models, ks=ks_for(len(rest)), seeds=1,
+                              epochs=args.epochs, lr=args.lr, amp=amp, fold=i, on_row=persist)
+    summary = summarize(rows)
+    at = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    meta = {"at": at, "projects": projects, "n_train": len(train), "n_val": len(val), "epochs": args.epochs,
+            "seeds": args.seeds, "production": prod_name, "annotators": len(annotators - {None}),
+            "evaluation": evaluation}
     md = to_markdown(summary, meta)
     (out / f"learning_curve-{stamp}.md").write_text(md)
     best = max((a for a in summary if a["mode"] in ("light", "heavy-base", "heavy-warm") and a["val"]),
