@@ -52,7 +52,7 @@ Số đo trên RTX 3060 Laptop (6 GB): **49 ms/ảnh/epoch** khi học nặng, V
 ```bash
 I=integrations/tasdf-online-learning C=label-studio-tasdf-online-1
 docker cp $I/scripts/learning_curve.py $C:/tmp/
-SAFE_RUN_CONTAINER=$C $I/scripts/safe_run.sh docker exec $C python /tmp/learning_curve.py --projects 36,37
+SAFE_RUN_CONTAINER=$C $I/scripts/safe_run.sh docker exec -e PYTHONPATH=/app $C python /tmp/learning_curve.py --projects 36,37
 ```
 Script so sánh học nhẹ / nặng-từ-base / nặng-từ-production theo số nhãn, trên val chưa từng học (dùng leave-one-out khi val < 10 ảnh). Kết quả ghi vào `reports/history.md`.
 Mỗi dòng đo được ghi ngay vào `reports/learning_curve-<thời điểm>.jsonl`. Bị ngắt thì chạy lại với `--resume <file.jsonl>` để bỏ qua phần đã đo.
