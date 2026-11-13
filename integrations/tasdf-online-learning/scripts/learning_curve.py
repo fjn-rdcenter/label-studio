@@ -24,6 +24,7 @@ import argparse
 import datetime as dt
 import gc
 import json
+import os
 import random
 import statistics as st
 import sys
@@ -185,6 +186,17 @@ def production_model(s, base, stage: str = "blastocyst"):
     return model.to(next(base.parameters()).device).eval(), name
 
 
+def read_rows(path: Path) -> list[dict]:
+    """Rows of a JSONL report; a line torn by a power cut (NUL bytes, half a row) is dropped and re-measured."""
+    rows = []
+    for line in path.read_bytes().split(b"\n"):
+        try:
+            rows.append(json.loads(line.strip(b"\x00 ")))
+        except ValueError:
+            pass
+    return rows
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--projects", default="36,37")
@@ -224,7 +236,7 @@ def main(argv=None) -> None:
     else:
         stamp = dt.datetime.now().strftime("%Y%m%d-%H%M")
         jsonl = out / f"learning_curve-{stamp}.jsonl"
-    old = [json.loads(line) for line in jsonl.open()] if jsonl.exists() else []
+    old = read_rows(jsonl) if jsonl.exists() else []
     done = frozenset((r["mode"], r["k"], r["seed"], r["fold"]) for r in old)
     if old:
         print(f"resuming {jsonl}: {len(old)} rows already measured", flush=True)
@@ -235,6 +247,8 @@ def main(argv=None) -> None:
     def persist(row):
         with jsonl.open("a") as fh:
             fh.write(json.dumps(row) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())  # a power cut must not leave a half-written row
         print(json.dumps(row), flush=True)
 
     if len(val) >= VAL_MIN:

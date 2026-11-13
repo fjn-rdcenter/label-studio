@@ -38,3 +38,9 @@ def test_run_curve_reports_every_mode_and_reference():
     rest = learning_curve.run_curve(train, val, holdout, None, {"base": base, "production": base}, ks=[2, 3],
                                     seeds=1, epochs=1, lr=1e-3, amp=False, fold=0, done=done)
     assert {(r["mode"], r["k"]) for r in rest} == {(m, 3) for m in ("light", "heavy-base", "heavy-warm")}
+
+
+def test_read_rows_drops_lines_torn_by_a_power_cut(tmp_path):
+    p = tmp_path / "lc.jsonl"
+    p.write_bytes(b'{"mode": "light", "k": 4}\n{"mode": "heavy-b' + b"\x00" * 20 + b"\n")
+    assert learning_curve.read_rows(p) == [{"mode": "light", "k": 4}]
