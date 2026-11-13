@@ -1,26 +1,58 @@
 # TASDF online-learning ML backend
 
-Đây là ML backend dùng cho Label Studio (fork Fujinet). Nó huấn luyện lại mô hình TASDF (phân vùng phôi nang ZP/TE/ICM/BC) **theo đợt** trên toàn bộ annotation đã duyệt của dự án, và chỉ thăng cấp khi đo được là không quên (D10) và không kém đi trên chính dự án. Thiết kế: [`docs/superpowers/specs/2026-11-12-tasdf-batch-training-design.md`](../../docs/superpowers/specs/2026-11-12-tasdf-batch-training-design.md).
+Đây là ML backend dùng cho Label Studio (fork Fujinet). Nó phân vùng phôi nang bằng mô hình TASDF:
+- **Backbone dùng chung**, cộng **một adapter (BN + head) cho mỗi giai đoạn phôi**. Mỗi project LS thuộc về một giai đoạn, khai báo trong `stages.json`.
+- Model **chỉ đổi qua tầng học dài hạn** (hằng tuần hoặc `POST /train`). Phiên bản mới chỉ lên production khi tốt hơn thật trên dữ liệu chưa từng học, không học vẹt và không quên.
 
-- **Đặc tả:** `D:\Workspace\model\context\context\online_learning.md`, mục 8.
-- **Kế hoạch:** nhánh `ML-backend-design`.
+Thiết kế: [`docs/superpowers/specs/2026-11-13-tasdf-stage-adapters-long-term-design.md`](../../docs/superpowers/specs/2026-11-13-tasdf-stage-adapters-long-term-design.md).
+
+## Model nằm ở đâu, thay đổi thế nào
+
+```
+${TASDF_DATA_DIR}/                     (= .data/tasdf-online trên host, /data/tasdf-online trong container)
+  baseline.pt                          model gốc M2-B, không bao giờ đổi
+  stages.json                          giai đoạn -> project LS, holdout/anchor (mẫu: stages.example.json)
+  registry/registry.json               danh sách bundle, con trỏ production/previous, lịch sử thăng cấp
+  registry/decoders/dec-*.pt           decoder dùng chung (fp16, ~49 MB)
+  registry/adapters/<stage>/ad-*.pt    adapter của từng giai đoạn (~0,3 MB)
+  registry/legacy/<project>/           registry cũ v1..vN (chỉ tra cứu, không phục vụ)
+  reports/                             learning curve (scripts/learning_curve.py)
+```
+
+- **Tên phiên bản:**
+  - Bundle: `tasdf-<ngày>-<hash6>`, duy nhất và không dùng lại.
+  - LS thấy `model_version = <bundle>.<stage>`, ví dụ `tasdf-20261120-4be7a2.blastocyst`.
+  - `tasdf-base` là model gốc.
+- **Xem:** `GET /registry` (header `X-OL-Token`), hoặc mở `/dashboard`.
+- **Đổi production:**
+  - Tự động: job dài hạn qua cổng.
+  - Thủ công: `POST /promote {"bundle": "...", "reason": "..."}`. Cổng vẫn chạy; muốn bỏ qua thì thêm `"override": true`, lý do được ghi vào `history`.
+- **Quay lại:** `POST /rollback` đặt production về previous.
+- **Thêm project vào một giai đoạn:** sửa `stages.json` rồi khởi động lại container. Project chưa khai báo sẽ bị `/setup` và `/predict` từ chối kèm thông báo rõ.
 
 ## Luồng hoạt động
 
 ```
-LS mở task ──/predict──> ensemble(net1,net2) của version active ──> polygon/ring (tasdf-vN)
-LS lưu annotation ──/webhook──┐  (trả ngay, job chạy nền, 1 job một lúc)
-LS "Start Training" ─/train─────┤
-                                ▼
-  job: kéo mọi task + annotation từ LS (không tin payload) → annotation mới nhất, quality >= MIN_QUALITY_LEVEL
-       → nhãn 256: ngoài ZP = nền, trong ZP không vẽ = ignore (lớp bị bỏ không bị dạy thành nền)
-       → chia cố định theo task: ~20% project-val (không bao giờ học), còn lại train
-       → đủ TRAIN_EVERY_N task train mới (hoặc /train)? → học từ v0: norm_and_heads (311,570 tham số,
-         BN stats đóng băng), CE + Dice, mỗi bước 4 mẫu dự án + tối đa 4 anchor D10, giữ checkpoint tốt nhất
-       → cổng: chống quên trên D10/valid (so active và v0) + project-val (≥ PROJECT_VAL_MIN ảnh: phải tăng
-         PROMOTE_MIN_GAIN; ít hơn: không được giảm quá 0.01)
-       → đạt: lưu vN (~1.27 MB), đổi teacher, đồng bộ prediction sang LS
+LS mở task ──/predict (project → stage)──> backbone production + adapter của stage ──> polygon (<bundle>.<stage>)
+LS lưu annotation ──/webhook──> chỉ đếm nhãn mới
+lịch TRAIN_CRON (mặc định CN 01:00, TZ) hoặc POST /train ──> job dài hạn (1 job một lúc, hoãn nếu thiếu RAM/VRAM)
+  → đọc lại mọi annotation đã duyệt từ LS; nhãn 256: ngoài ZP = nền, trong ZP không vẽ = ignore
+  → chia train/val theo hash nội dung ảnh (~20% val, không bao giờ học); cần ≥ TRAIN_MIN_NEW nhãn mới
+  → học tiếp từ production: decoder + BN + head (encoder đóng băng), augmentation, AdamW + cosine,
+    D10 anchor ≤ 25% mỗi batch, dừng sớm, giới hạn TRAIN_MAX_HOURS; hiệu chỉnh BN nếu ≥ BN_RECAL_MIN ảnh
+  → cứ AUDIT_EVERY job: học thêm một bản từ baseline, thay bản warm-start nếu bản từ baseline tốt hơn
+  → cổng: val tăng ≥ max(PROMOTE_MIN_GAIN, 2 × std bootstrap) · train − val ≤ MAX_TRAIN_VAL_GAP
+          · không quên trên D10/valid (so production và baseline) · encoder không đổi
+  → đạt: production ← bundle mới, previous ← cũ, PATCH model_version của mọi project trong stage
 ```
+
+Số đo trên RTX 3060 Laptop (6 GB): **49 ms/ảnh/epoch** khi học nặng, VRAM đỉnh **2,4 GB**. 1000 ảnh × 60 epoch mất khoảng 50 phút. Chạy thử 1 epoch trên dữ liệu thật: `POST /train {"force": true, "dry_run": true}`.
+
+**Có tốt lên thật không?** Sau mỗi đợt gán nhãn, chạy:
+```bash
+docker exec -i label-studio-tasdf-online-1 python - --projects 36,37 < integrations/tasdf-online-learning/scripts/learning_curve.py
+```
+Script so sánh học nhẹ / nặng-từ-base / nặng-từ-production theo số nhãn, trên val chưa từng học (dùng leave-one-out khi val < 10 ảnh). Kết quả ghi vào `reports/history.md`.
 
 ## Cấu hình (env)
 
@@ -30,7 +62,7 @@ Khi chạy bằng Docker, mỗi biến chỉ có **một** nơi đặt:
 |---|---|---|
 | Đường dẫn trong container | `environment:` của `docker-compose.tasdf.yml` (cố định, ghi đè `tasdf.env`) | `LS_URL`, `STATE_DIR`, `BASELINE_CKPT`, `HOLDOUT_NPZ`, `ANCHOR_NPZ` |
 | Thông số theo môi trường | `.env` ở thư mục gốc repo hoặc `docker compose --env-file <file>`. Mẫu: [`compose.env.example`](compose.env.example) | `TASDF_DATA_DIR`, `TASDF_UID`/`TASDF_GID`, `TASDF_PUBLISH`, `TASDF_DEVICE`, `TASDF_TORCH_THREADS`, `TASDF_HOLDOUT_LIMIT`, `TASDF_DASHBOARD`, `TASDF_TORCH_INDEX_URL` |
-| Secret và các tham số app còn lại | `${TASDF_DATA_DIR}/tasdf.env`, không commit. Mẫu: [`tasdf.env.example`](tasdf.env.example) | `LS_TOKEN`, `LS_PROJECT_ID`, `OL_TOKEN`, `MIN_QUALITY_LEVEL`, `REFRESH_NEXT_N`, … |
+| Secret và các tham số app còn lại | `${TASDF_DATA_DIR}/tasdf.env`, không commit. Mẫu: [`tasdf.env.example`](tasdf.env.example) | `LS_TOKEN`, `OL_TOKEN`, `MIN_QUALITY_LEVEL`, `REFRESH_NEXT_N`, tham số huấn luyện … |
 
 Lưu ý:
 - Biến thuộc hai tầng trên mà đặt trong `tasdf.env` sẽ **bị bỏ qua mà không báo lỗi**. Ví dụ: `DASHBOARD_ENABLED=0` đặt trong `tasdf.env` không tắt được dashboard, phải dùng `TASDF_DASHBOARD=0`.
@@ -45,10 +77,13 @@ Lưu ý:
 | `BASE_CHANNELS` / `EROSION` | 64 / `cross` | Phải khớp với checkpoint |
 | `HOLDOUT_NPZ` / `HOLDOUT_LIMIT` | — / 0 | D10/valid (8 ảnh, đủ 4 lớp) cho cổng chống quên. 0 = dùng toàn bộ |
 | `ANCHOR_NPZ` | — | D10/train (32 mask) trộn vào mỗi bước huấn luyện, không vượt số mẫu dự án. Tuỳ chọn; thiếu file thì chỉ học trên dữ liệu dự án |
-| `TRAIN_EVERY_N` / `TRAIN_STEPS` / `EVAL_EVERY` / `LR` | 10 / 200 / 20 / 3e-4 | Ngưỡng task train mới để tự chạy job; số bước; đo mỗi bao nhiêu bước để giữ checkpoint tốt nhất |
-| `PROJECT_VAL_MIN` / `PROMOTE_MIN_GAIN` | 10 / 0.005 | Từ bao nhiêu ảnh project-val thì bắt buộc tăng mới thăng cấp |
-| `STATE_DIR` | `/data/tasdf-online` | Nơi lưu `registry.json` và `versions/vN.pt` cho từng project |
-| `LS_URL`, `LS_TOKEN`, `LS_PROJECT_ID` | — | `LS_TOKEN` phải là token của user có role **Manager trong project**. Org Admin chỉ có quyền đọc trong fork này |
+| `TRAIN_CRON` / `TZ` | `0 1 * * 0` / `Asia/Ho_Chi_Minh` | Lịch học dài hạn (cron 5 trường, giờ địa phương); rỗng thì tắt lịch. Trong compose: `TASDF_TRAIN_CRON`, `TASDF_TZ` |
+| `TRAIN_MIN_NEW` / `TRAIN_EPOCHS` / `TRAIN_MAX_HOURS` / `LR` | 10 / 60 / 2 / 3e-4 | Ngưỡng nhãn mới để chạy theo lịch; số epoch tối đa; giới hạn giờ; learning rate |
+| `PROJECT_VAL_MIN` / `PROMOTE_MIN_GAIN` / `MAX_TRAIN_VAL_GAP` | 10 / 0.005 / 0.15 | Cổng: từ bao nhiêu ảnh val thì bắt buộc tăng (vượt cả nhiễu bootstrap); giới hạn khoảng cách train − val |
+| `AUDIT_EVERY` / `AUDIT_MARGIN` / `BN_RECAL_MIN` | 4 / 0.01 / 32 | Kiểm tra định kỳ bằng một bản học từ baseline; ngưỡng ảnh để hiệu chỉnh thống kê BN |
+| `MIN_FREE_RAM_GB` / `MIN_FREE_VRAM_GB` | 3 / 3 | Job hoãn (ghi lý do) khi bộ nhớ trống thấp hơn. Compose giới hạn container `TASDF_MEM_LIMIT=6g` |
+| `STAGES_FILE` / `REGISTRY_DIR` / `STATE_DIR` | `/data/tasdf-online/{stages.json,registry,state}` | Ánh xạ giai đoạn → project; registry; registry cũ (tự chuyển vào `registry/legacy`) |
+| `LS_URL`, `LS_TOKEN` | — | `LS_TOKEN` phải là token của user có role **Manager trong project**. Org Admin chỉ có quyền đọc trong fork này |
 | `MIN_QUALITY_LEVEL` | 2 | Chỉ học từ annotation đã được Reviewer/Manager duyệt |
 | `OL_TOKEN` | — | Bảo vệ `/telemetry/live`, `/rollback`, `/refresh_ls_predictions`, `/dashboard/toggle`; chỉ nhận qua header `X-OL-Token` (không nhận `?token=`), trên `/dashboard` nhập vào ô Token. Bỏ trống: các endpoint này **chỉ mở khi `DASHBOARD_ENABLED=1`** (môi trường dev), còn khi `DASHBOARD_ENABLED=0` thì bị khoá. Không dùng chuỗi `tasdf-secret-token` (từng được build vào `web/dist`) |
 | `DASHBOARD_ENABLED` | `1` | `/dashboard` là công cụ kiểm tra lúc phát triển, **không thuộc sản phẩm**: triển khai thật đặt `TASDF_DASHBOARD=0` (kèm `OL_TOKEN` nếu vẫn cần rollback/refresh). Dashboard chạy chung tiến trình gunicorn với ML backend (container `tasdf-online`, cổng 9090), không có service riêng. `0` = không mount: `/dashboard` và `/dashboard/toggle` không tồn tại, không bật lại được lúc chạy. Dev mở trực tiếp `http://<host>:9090/dashboard` (Data Manager không có nút). Khi khởi động với `1`, bật/tắt chụp telemetry lúc chạy qua `POST /dashboard/toggle`. Có thể chạy tách rời bằng `BACKEND_URL=http://localhost:9090 DASHBOARD_PORT=9091 python -m tasdf_online.dashboard` |
@@ -89,7 +124,7 @@ docker compose -f docker-compose.yml -f docker-compose.tasdf.yml -f docker-compo
 **Không dùng Docker** (ví dụ trên GPU server). Dùng đường dẫn trên host. Không dùng lại `tasdf.env` của Docker: một file env chung cho cả hai cách chạy đã từng làm đường dẫn host lọt vào container.
 
 ```bash
-DEVICE=cuda BASELINE_CKPT=... HOLDOUT_NPZ=... LS_URL=... LS_TOKEN=... LS_PROJECT_ID=... OL_TOKEN=... python -m tasdf_online.app
+DEVICE=cuda BASELINE_CKPT=... STAGES_FILE=... REGISTRY_DIR=... LS_URL=... LS_TOKEN=... OL_TOKEN=... python -m tasdf_online.app
 ```
 
 ## Cấu hình Label Studio
@@ -97,13 +132,14 @@ DEVICE=cuda BASELINE_CKPT=... HOLDOUT_NPZ=... LS_URL=... LS_TOKEN=... LS_PROJECT
 1. Tạo project và dán nội dung `label-config.xml`. ZP và TE vẽ dạng ring; ICM và BC vẽ polygon thường.
 2. Tạo một user dịch vụ, cho vào org với role Member và gán **Manager** trong project (Settings → Members). Lấy token của user này làm `LS_TOKEN`.
 3. Vào Settings → Model, thêm URL của backend (ví dụ `http://tasdf-online:9090`). **Không** bật "Interactive preannotations". LS sẽ tự tạo webhook tới `/webhook`.
-4. Khi khởi động, backend tự PATCH `project.model_version = tasdf-<active>`, nhờ đó LS hiển thị đúng prediction của version đang chạy.
-5. Trong màn hình gán nhãn, bấm **Smart Prediction** (thanh trên): gọi model cho task đang mở (`force`, luôn tạo prediction mới) và nạp kết quả vào annotation hiện tại; nếu đã có vùng tự vẽ cùng nhãn, hộp xác nhận hỏi giữ vùng tự vẽ (OK) hay thay bằng dự đoán (Cancel — xoá vùng tự vẽ cùng nhãn). Chỉ dùng backend non-interactive.
+4. Thêm id project vào giai đoạn tương ứng trong `stages.json` rồi khởi động lại backend. Khi khởi động và sau mỗi lần thăng cấp, backend PATCH `project.model_version = <bundle>.<stage>` cho mọi project đã khai báo.
+5. Muốn LS tự gọi `/train` sau mỗi N annotation: đặt `min_annotations_to_start_training` của project. Job vẫn chỉ chạy khi đủ `TRAIN_MIN_NEW` nhãn mới.
+6. Trong màn hình gán nhãn, bấm **Smart Prediction** (thanh trên): gọi model cho task đang mở (`force`, luôn tạo prediction mới) và nạp kết quả vào annotation hiện tại; nếu đã có vùng tự vẽ cùng nhãn, hộp xác nhận hỏi giữ vùng tự vẽ (OK) hay thay bằng dự đoán (Cancel — xoá vùng tự vẽ cùng nhãn). Chỉ dùng backend non-interactive.
 
 **An toàn:**
-- Webhook chỉ là tín hiệu: worker đọc lại annotation (`/api/annotations/<id>`) và task (`/api/tasks/<id>`) từ LS bằng `LS_TOKEN`; `result`, `quality_level`, ảnh trong payload không được tin. Payload thiếu `project` bị bỏ qua.
+- Webhook chỉ để đếm. Job đọc lại mọi task và annotation từ LS bằng `LS_TOKEN`; không có gì trong payload webhook được tin.
 - `/setup`, `/predict`, `/webhook`, `/train` không có xác thực (giao thức ML backend của LS) và compose publish cổng 9090 ra mọi interface: chỉ chạy trong mạng nội bộ tin cậy; nếu phải lộ ra ngoài, đặt reverse proxy có Basic Auth và chọn `Basic Auth` khi thêm backend trong LS. `LS_TOKEN` là bắt buộc: thiếu nó job từ chối train (chỉ học dữ liệu đọc lại từ LS).
-- `registry.json` ghi fingerprint (sha256 baseline, sha256 holdout, `HOLDOUT_LIMIT`): đổi holdout → tự đo lại metrics của v0 và version active; đổi `BASELINE_CKPT` với `STATE_DIR` cũ → dừng khi khởi động.
+- `registry.json` ghi sha256 của baseline; đổi `BASELINE_CKPT` mà vẫn giữ registry cũ thì backend dừng ngay khi khởi động. Metric D10 của baseline được đo lại khi file holdout của một giai đoạn thay đổi.
 
 ## Test
 
@@ -117,6 +153,6 @@ Test CUDA tự bỏ qua nếu máy không có GPU.
 ## Giới hạn đã biết
 
 - Mỗi ring polygon chỉ có **một lỗ**, đúng như giới hạn của editor fork.
-- Gate chỉ đo quên trên miền dữ liệu cũ (holdout), không đo mức cải thiện trên ảnh của project. Hãy theo dõi `next_task_dice` trong `/telemetry/live`.
-- `local_probe` (AR_Δ) đo trên chính mẫu vừa train, nên không phản ánh khả năng khái quát hoá.
-- Mỗi project LS chỉ dùng được một ML backend. Không thể dùng chung project với backend OpenCV interactive.
+- Phần A chỉ huấn luyện **một giai đoạn** (`blastocyst`). Học chung nhiều giai đoạn với tập lớp khác nhau thuộc phần C.
+- Khi val có dưới `PROJECT_VAL_MIN` ảnh, cổng chỉ chặn trường hợp giảm rõ (ghi `insufficient_val`) và chưa đòi phải tăng. Hãy gán thêm nhãn và theo dõi `reports/history.md`.
+- Tầng ngắn hạn (adapter theo phôi) và script cắt phôi khỏi đĩa thuộc phần B, chưa làm.
