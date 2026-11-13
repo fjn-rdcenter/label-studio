@@ -60,10 +60,6 @@ def select_trainable(model: nn.Module, mode: str = "light") -> int:
     return count
 
 
-def trainable_state(model: nn.Module, mode: str = "light") -> dict:
-    return {n: p.detach().cpu().clone() for n, p in model.named_parameters() if is_trainable(n, mode)}
-
-
 @torch.no_grad()
 def predict_probs(model: nn.Module, images: torch.Tensor, batch: int = 8) -> tuple[torch.Tensor, torch.Tensor]:
     """images: (N,1,H,W) float -> ensemble probs (N,C,H,W) and topo (N,4,H,W) on CPU."""

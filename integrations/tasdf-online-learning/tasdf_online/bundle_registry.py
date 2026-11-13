@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import shutil
+import threading
 import time
 from pathlib import Path
 
@@ -64,6 +65,9 @@ class BundleRegistry:
         self.root = Path(root)
         self.base_state = base_state
         self.path = self.root / "registry.json"
+        # the web service writes from request threads (promote/rollback) while a job saves bundles
+        self._lock = threading.RLock()
+        changed = not self.path.exists()
         if self.path.exists():
             self.data = json.loads(self.path.read_text(encoding="utf-8"))
             if self.data["base_sha"] != base_sha:
@@ -76,15 +80,19 @@ class BundleRegistry:
         self.data["bundles"].setdefault(BASE, {"decoder": "dec-base", "adapters": {}, "status": "baseline",
                                                "created": time.time(), "metrics": {}})
         for stage in stages:  # a new stage starts from the baseline adapter
-            self.data["bundles"][BASE]["adapters"].setdefault(stage, f"ad-{stage}-base")
-        self._save()
+            if stage not in self.data["bundles"][BASE]["adapters"]:
+                self.data["bundles"][BASE]["adapters"][stage] = f"ad-{stage}-base"
+                changed = True
+        if changed:  # opening must not rewrite: a reader (learning_curve.py) would overwrite newer data
+            self._save()
 
     # ---- persistence -------------------------------------------------------------------------
     def _save(self) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name("registry.json.tmp")
-        tmp.write_text(json.dumps(self.data, indent=1, default=float), encoding="utf-8")
-        os.replace(tmp, self.path)
+        with self._lock:
+            self.root.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_name("registry.json.tmp")
+            tmp.write_text(json.dumps(self.data, indent=1, default=float), encoding="utf-8")
+            os.replace(tmp, self.path)
 
     @property
     def production(self) -> str:
@@ -93,6 +101,11 @@ class BundleRegistry:
     @property
     def previous(self) -> str:
         return self.data["pointers"]["previous"]
+
+    def snapshot(self) -> dict:
+        """A copy for readers in other threads (the HTTP routes): a job may be adding a bundle meanwhile."""
+        with self._lock:
+            return json.loads(json.dumps(self.data, default=float))
 
     def info(self, bundle: str) -> dict:
         return self.data["bundles"][bundle]
@@ -106,6 +119,10 @@ class BundleRegistry:
 
         Phase A trains one model for its single stage; with several stages pass one call per training
         result and the same decoder (identical decoder tensors dedupe to the same id)."""
+        with self._lock:
+            return self._save_bundle(state, stages, meta, fp16)
+
+    def _save_bundle(self, state: dict, stages: list[str], meta: dict, fp16: bool) -> str:
         dec = decoder_state(state)
         dec_id = f"dec-{_today()}-{_digest(dec)}"
         dec_path = self.root / "decoders" / f"{dec_id}.pt"
@@ -122,6 +139,7 @@ class BundleRegistry:
         bundle = f"tasdf-{_today()}-{hashlib.sha256((dec_id + json.dumps(adapters, sort_keys=True)).encode()).hexdigest()[:6]}"
         self.data["bundles"][bundle] = {"decoder": dec_id, "adapters": adapters, "status": "candidate",
                                         "created": time.time(), **meta}
+        self._gc()  # rejected candidates pile up for months while val is too small to promote anything
         self._save()
         return bundle
 
@@ -141,15 +159,21 @@ class BundleRegistry:
 
     def set_meta(self, key: str, value) -> None:
         """Top-level bookkeeping that must survive restarts (last_data_snapshot, job_count, val_trend)."""
-        self.data[key] = value
-        self._save()
+        with self._lock:
+            self.data[key] = value
+            self._save()
 
     def record(self, bundle: str, **fields) -> None:
-        self.data["bundles"][bundle].update(fields)
-        self._save()
+        with self._lock:
+            self.data["bundles"][bundle].update(fields)
+            self._save()
 
     # ---- pointers ----------------------------------------------------------------------------
     def promote(self, bundle: str, reason: str, by: str = "gate") -> None:
+        with self._lock:
+            self._promote(bundle, reason, by)
+
+    def _promote(self, bundle: str, reason: str, by: str) -> None:
         if bundle not in self.data["bundles"]:
             raise KeyError(bundle)
         old = self.production
@@ -164,9 +188,10 @@ class BundleRegistry:
         self._save()
 
     def rollback(self, by: str = "operator") -> str:
-        target = self.previous
-        self.promote(target, reason="rollback", by=by)
-        return target
+        with self._lock:
+            target = self.previous
+            self._promote(target, reason="rollback", by=by)
+            return target
 
     def _gc(self) -> None:
         """Keep baseline, production, previous and the KEEP_RECENT newest bundles; drop unreferenced files."""

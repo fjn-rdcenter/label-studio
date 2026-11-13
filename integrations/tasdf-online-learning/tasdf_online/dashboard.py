@@ -70,7 +70,7 @@ async function poll(){
     document.getElementById('job_meta').textContent=
       `Job ${job.job_id} (${job.kind}) -> ${job.bundle} (${job.seconds}s) | ${job.accepted?'PROMOTED':'REJECTED'} (${(job.gate_reasons||[]).join(', ')||'ok'}) | `+
       `train ${job.train_images} img, val ${job.val_images} img | val ${n(m.production_val)} -> ${n(m.val)} | train ${n(m.train)}`+(job.note?` | ${job.note}`:'');
-    document.getElementById('job_loss').textContent='epoch: loss / score  '+(job.history||[]).map(h=>`${h.epoch}: ${h.loss}/${h.score??'-'}`).join('  ');
+    document.getElementById('job_loss').textContent='epoch: loss  '+(job.history||[]).map(h=>`${h.epoch}: ${h.loss}`).join('  ');
   }
   let vr='<tr><th>Bundle</th><th>Status</th><th>Stage</th><th>D10 mDice</th><th>BC</th><th>val</th><th>train</th></tr>';
   for(const [k,info] of Object.entries(d.bundles||{})){

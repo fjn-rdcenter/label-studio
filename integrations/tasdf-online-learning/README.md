@@ -23,6 +23,8 @@ ${TASDF_DATA_DIR}/                     (= .data/tasdf-online trên host, /data/t
   - Bundle: `tasdf-<ngày>-<hash6>`, duy nhất và không dùng lại.
   - LS thấy `model_version = <bundle>.<stage>`, ví dụ `tasdf-20261120-4be7a2.blastocyst`.
   - `tasdf-base` là model gốc.
+  - `GET /versions` (danh sách version trong cài đặt project LS) chỉ trả các version đang phục vụ. Đổi version bằng `/promote`/`/rollback`, không đổi từ LS.
+- **Dọn dẹp:** mỗi lần lưu hoặc thăng cấp, registry chỉ giữ baseline, production, previous và 3 bộ mới nhất; file decoder/adapter không còn ai dùng thì bị xoá.
 - **Xem:** `GET /registry` (header `X-OL-Token`), hoặc mở `/dashboard`.
 - **Đổi production:**
   - Tự động: job dài hạn qua cổng.
@@ -39,9 +41,11 @@ lịch TRAIN_CRON (mặc định CN 01:00, TZ) hoặc POST /train ──> job d�
   → đọc lại mọi annotation đã duyệt từ LS; nhãn 256: ngoài ZP = nền, trong ZP không vẽ = ignore
   → chia train/val theo hash nội dung ảnh (~20% val, không bao giờ học); cần ≥ TRAIN_MIN_NEW nhãn mới
   → học tiếp từ production: decoder + BN + head (encoder đóng băng), augmentation, AdamW + cosine,
-    D10 anchor ≤ 25% mỗi batch, dừng sớm, giới hạn TRAIN_MAX_HOURS; hiệu chỉnh BN nếu ≥ BN_RECAL_MIN ảnh
+    D10 anchor ≤ 25% mỗi batch, đủ TRAIN_EPOCHS epoch (không dừng sớm theo val: val chỉ dành cho cổng),
+    giới hạn TRAIN_MAX_HOURS; hiệu chỉnh BN nếu ≥ BN_RECAL_MIN ảnh
   → cứ AUDIT_EVERY job: học thêm một bản từ baseline, thay bản warm-start nếu bản từ baseline tốt hơn
-  → cổng: val tăng ≥ max(PROMOTE_MIN_GAIN, 2 × std bootstrap) · train − val ≤ MAX_TRAIN_VAL_GAP
+  → cổng: val ≥ PROJECT_VAL_MIN ảnh (ít hơn: chỉ ghi kết quả, không thăng cấp)
+          · val tăng ≥ max(PROMOTE_MIN_GAIN, 2 × std bootstrap) · train − val ≤ MAX_TRAIN_VAL_GAP
           · không quên trên D10/valid (so production và baseline) · encoder không đổi
   → đạt: production ← bundle mới, previous ← cũ, PATCH model_version của mọi project trong stage
 ```
@@ -89,7 +93,7 @@ Lưu ý:
 | `HOLDOUT_NPZ` / `HOLDOUT_LIMIT` | — / 0 | D10/valid (8 ảnh, đủ 4 lớp) cho cổng chống quên. 0 = dùng toàn bộ |
 | `ANCHOR_NPZ` | — | D10/train (32 mask) trộn vào mỗi bước huấn luyện, không vượt số mẫu dự án. Tuỳ chọn; thiếu file thì chỉ học trên dữ liệu dự án |
 | `TRAIN_CRON` / `TZ` | `0 1 * * 0` / `Asia/Ho_Chi_Minh` | Lịch học dài hạn (cron 5 trường, giờ địa phương); rỗng thì tắt lịch. Trong compose: `TASDF_TRAIN_CRON`, `TASDF_TZ` |
-| `TRAIN_MIN_NEW` / `TRAIN_EPOCHS` / `TRAIN_MAX_HOURS` / `LR` | 10 / 60 / 2 / 3e-4 | Ngưỡng nhãn mới để chạy theo lịch; số epoch tối đa; giới hạn giờ; learning rate |
+| `TRAIN_MIN_NEW` / `TRAIN_EPOCHS` / `TRAIN_MAX_HOURS` / `LR` | 10 / 60 / 2 / 3e-4 | Ngưỡng nhãn mới để chạy theo lịch; số epoch (cố định); giới hạn giờ; learning rate |
 | `PROJECT_VAL_MIN` / `PROMOTE_MIN_GAIN` / `MAX_TRAIN_VAL_GAP` | 10 / 0.005 / 0.15 | Cổng: từ bao nhiêu ảnh val thì bắt buộc tăng (vượt cả nhiễu bootstrap); giới hạn khoảng cách train − val |
 | `AUDIT_EVERY` / `AUDIT_MARGIN` / `BN_RECAL_MIN` | 4 / 0.01 / 32 | Kiểm tra định kỳ bằng một bản học từ baseline; ngưỡng ảnh để hiệu chỉnh thống kê BN |
 | `MIN_FREE_RAM_GB` / `MIN_FREE_VRAM_GB` | 3 / 3 | Job hoãn (ghi lý do) khi bộ nhớ trống thấp hơn. Compose giới hạn container `TASDF_MEM_LIMIT=6g` |

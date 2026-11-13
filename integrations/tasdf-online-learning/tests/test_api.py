@@ -32,6 +32,7 @@ def test_health_setup_predict_per_stage(client):
     assert res["model_version"] == f"{BASE}.blastocyst" and isinstance(res["result"], list) and 0.0 <= res["score"] <= 1.0
     assert all(r["from_name"] == "p" and r["to_name"] == "img" for r in res["result"])
     assert client.post("/predict", json={"project": "7.1", "tasks": []}).status_code == 400
+    assert client.get("/versions").get_json() == {"versions": [f"{BASE}.blastocyst"]}  # only what LS can select
 
 
 def test_unconfigured_project_is_refused(client):
@@ -198,6 +199,7 @@ def test_job_saves_a_bundle_and_gates_it(ls_svc):
     assert info["status"] in ("production", "rejected") and info["metrics"]["blastocyst"]["d10"]
     assert (ls_svc.registry.production == rec["bundle"]) == rec["accepted"]
     assert info["layer_shifts"]["encoder_frozen"]["l2_shift"] == 0.0
+    assert len(info["history"]) == ls_svc.s.train_epochs  # fixed epochs: val never steers training
     # snapshot persists: nothing new -> no job unless forced, also after a restart
     assert ls_svc.run_job(force=False) is None and ls_svc.telemetry["pending"]["new"] == 0
     again = app_module.OnlineService(ls_svc.s)

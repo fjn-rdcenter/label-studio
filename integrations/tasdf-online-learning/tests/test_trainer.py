@@ -62,15 +62,6 @@ def test_heavy_mode_trains_decoder_and_keeps_encoder():
     assert learner.layer_shifts(base, light, before)["decoder_frozen"]["l2_shift"] == 0.0
 
 
-def test_train_epochs_early_stops_and_keeps_best():
-    base = learner.build_model(base_channels=8).eval()
-    y = torch.from_numpy(blastocyst_mask().astype(np.int64))[None]
-    cand, history = trainer.train_epochs(base, torch.rand(1, 1, 256, 256), y, None, mode="light", epochs=10, lr=1e-2,
-                                         amp=False, score_fn=lambda m: 0.0, patience=2)
-    assert len(history) == 2  # no gain over the start for 2 epochs
-    assert all(torch.equal(p, q) for p, q in zip(cand.parameters(), base.parameters()))
-
-
 def test_recalibrate_bn_changes_only_running_stats():
     model = learner.build_model(base_channels=8).eval()
     before = {k: v.clone() for k, v in model.state_dict().items()}

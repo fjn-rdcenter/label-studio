@@ -71,6 +71,8 @@ stop_all() {
     [ "$paused" = 1 ] && resume_cmd
     kill -TERM -- "-$pid" 2>/dev/null
     log "interrupted, stopped pid $pid"
+    # shortcut: killing `docker exec` does not stop the process inside the container
+    [ -n "$CONTAINER" ] && log "still running in $CONTAINER without the watchdog: docker exec $CONTAINER pkill -f <script>"
     exit 130
 }
 trap stop_all INT TERM

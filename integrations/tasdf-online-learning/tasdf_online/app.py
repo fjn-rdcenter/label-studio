@@ -295,10 +295,12 @@ class OnlineService:
                 return learner.evaluate(model, *hold)["pooled_mDice"]
 
             def fit(start, epochs):
+                # fixed epochs, no early stopping: picking the best epoch on val and then gating on the same val
+                # would inflate the gain the gate sees; val stays untouched until the gate
                 if self.device.type == "cuda":
                     torch.cuda.reset_peak_memory_stats(self.device)
                 cand, history = trainer.train_epochs(
-                    start, x, y, anchors, mode="heavy", epochs=epochs, lr=self.s.lr, amp=self.amp, score_fn=score,
+                    start, x, y, anchors, mode="heavy", epochs=epochs, lr=self.s.lr, amp=self.amp,
                     max_seconds=self.s.train_max_hours * 3600)
                 if len(train) >= self.s.bn_recal_min:
                     trainer.recalibrate_bn(cand, x)
@@ -318,6 +320,8 @@ class OnlineService:
             if self.s.audit_every and job_count % self.s.audit_every == 0:
                 # audit: does the warm-start chain still beat a fresh fit from the baseline on the same data?
                 base_cand, _ = fit(self.model_for(BASE, stage), self.s.train_epochs)
+                # shortcut: picking the better of two candidates on val, then gating on that val, is a small
+                # best-of-2 bias; it is well inside the gate's 2x bootstrap margin
                 if score(base_cand) > score(cand) + self.s.audit_margin:
                     cand, reason_prefix = base_cand, "audit"
                 del base_cand
@@ -548,23 +552,26 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
 
     @app.get("/versions")
     def versions():
-        return jsonify(versions=[b for b, i in svc.registry.data["bundles"].items() if i.get("status") != "rejected"])
+        # LS offers these in the project's model-version list and saves only a version the backend reports (/setup)
+        # or a prediction carries: list exactly what is served. Switching versions is /promote or /rollback.
+        return jsonify(versions=[svc.version_for(st) for st in svc.stages])
 
     @app.get("/telemetry/live")
     def telemetry():
         if not ops_allowed():
             return jsonify(error="unauthorized"), 401
+        d = svc.registry.snapshot()
         bundles = {b: {k: i.get(k) for k in ("status", "parent", "metrics", "gate_reasons", "note", "created", "kind")}
-                   for b, i in svc.registry.data["bundles"].items()}
-        return jsonify(production=svc.registry.production, previous=svc.registry.previous, device=str(svc.device),
+                   for b, i in d["bundles"].items()}
+        return jsonify(production=d["pointers"]["production"], previous=d["pointers"]["previous"], device=str(svc.device),
                        training=svc.train_lock.locked(), dashboard_enabled=svc.dashboard_enabled, bundles=bundles,
-                       val_trend=svc.registry.data.get("val_trend", []), **svc.telemetry)
+                       val_trend=d.get("val_trend", []), **svc.telemetry)
 
     @app.get("/registry")
     def registry():
         if not ops_allowed():
             return jsonify(error="unauthorized"), 401
-        d = svc.registry.data
+        d = svc.registry.snapshot()
         snapshot = d.get("last_data_snapshot") or {}
         return jsonify(pointers=d["pointers"], bundles=d["bundles"], history=d["history"], legacy=d.get("legacy", {}),
                        stages=svc.stages, data_snapshot={p: len(t) for p, t in snapshot.items()},

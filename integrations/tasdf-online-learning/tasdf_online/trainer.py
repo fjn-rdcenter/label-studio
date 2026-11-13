@@ -112,13 +112,12 @@ def augment(x: torch.Tensor, y: torch.Tensor, rng: random.Random) -> tuple[torch
 
 
 def train_epochs(base: nn.Module, x: torch.Tensor, y: torch.Tensor, anchors: tuple | None, *, mode: str, epochs: int,
-                 lr: float, amp: bool, score_fn=None, patience: int = 5, anchor_frac: float = 0.25, batch: int = 8,
+                 lr: float, amp: bool, anchor_frac: float = 0.25, batch: int = 8,
                  micro_batch: int = 2, max_seconds: float | None = None, seed: int = 0) -> tuple[nn.Module, list[dict]]:
     """Epoch-based supervised training (CE + soft-Dice, IGNORE-aware) of the `mode` subset of a copy of `base`.
 
     Each optimizer step uses `batch` images: project samples plus at most `anchor_frac` anchors.
-    With `score_fn`, keeps the best-scoring epoch and stops after `patience` epochs without gain;
-    without it, returns the last epoch (fixed budget: no selection on held-out data)."""
+    Returns the last epoch: a fixed budget, never an epoch picked on held-out data (the gate's val must stay unseen)."""
     rng = random.Random(seed)
     torch.manual_seed(seed)
     device = next(base.parameters()).device
@@ -131,9 +130,7 @@ def train_epochs(base: nn.Module, x: torch.Tensor, y: torch.Tensor, anchors: tup
     steps_per_epoch = max(1, math.ceil(len(x) / per_step))
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(1, epochs * steps_per_epoch))
     scaler = torch.amp.GradScaler("cuda", enabled=amp)
-    best_score = score_fn(model) if score_fn else None
-    best_state, since_best, history, t0 = learner.trainable_state(model, mode), 0, [], time.time()
-    learner.select_trainable(model, mode)
+    history, t0 = [], time.time()
     for epoch in range(1, epochs + 1):
         order = list(range(len(x)))
         rng.shuffle(order)
@@ -162,19 +159,9 @@ def train_epochs(base: nn.Module, x: torch.Tensor, y: torch.Tensor, anchors: tup
         entry = {"epoch": epoch, "loss": round(total / steps_per_epoch, 4), "seconds": round(time.time() - t0, 1)}
         if device.type == "cuda" and (waited := cool_down()):
             entry["cooled_seconds"] = waited
-        if score_fn:
-            score = score_fn(model)
-            learner.select_trainable(model, mode)
-            entry["score"] = round(score, 4)
-            if score > best_score:
-                best_score, best_state, since_best = score, learner.trainable_state(model, mode), 0
-            else:
-                since_best += 1
         history.append(entry)
-        if (score_fn and since_best >= patience) or (max_seconds and time.time() - t0 > max_seconds):
+        if max_seconds and time.time() - t0 > max_seconds:
             break
-    if score_fn:
-        model.load_state_dict(best_state, strict=False)
     return model.eval(), history
 
 

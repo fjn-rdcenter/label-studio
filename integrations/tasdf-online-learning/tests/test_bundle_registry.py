@@ -81,6 +81,26 @@ def test_promote_rollback_history_and_gc(tmp_path):
         BundleRegistry(tmp_path / "registry", _model().state_dict(), "other", ["blastocyst"])
 
 
+def test_rejected_candidates_are_pruned_without_any_promotion(tmp_path):
+    reg = BundleRegistry(tmp_path / "registry", _model().state_dict(), "sha", ["blastocyst"])
+    for i in range(6):  # months of weekly jobs while val is too small to promote
+        reg.record(reg.save_bundle(_perturb(_model(i)).state_dict(), ["blastocyst"], {}), status="rejected")
+    assert len(reg.data["bundles"]) == 1 + 3  # baseline + the 3 newest
+    assert len(list((tmp_path / "registry" / "decoders").glob("*.pt"))) == 3
+
+
+def test_opening_the_registry_does_not_rewrite_it(tmp_path):
+    reg = BundleRegistry(tmp_path / "registry", _model().state_dict(), "sha", ["blastocyst"])
+    reg.set_meta("job_count", 1)
+    before = reg.path.stat().st_mtime_ns
+    reader = BundleRegistry(tmp_path / "registry", _model().state_dict(), "sha", ["blastocyst"])  # learning_curve.py
+    reg.set_meta("job_count", 2)  # the service writes after the reader opened
+    assert reader.path.stat().st_mtime_ns >= before and json.loads(reg.path.read_text())["job_count"] == 2
+    mtime = reg.path.stat().st_mtime_ns
+    BundleRegistry(tmp_path / "registry", _model().state_dict(), "sha", ["blastocyst"])
+    assert reg.path.stat().st_mtime_ns == mtime
+
+
 def test_migrate_legacy_moves_old_registries(tmp_path):
     state = tmp_path / "state"
     (state / "37" / "versions").mkdir(parents=True)
