@@ -115,7 +115,8 @@ class OnlineService:
             log.info("moved legacy per-project registries %s to %s/legacy (not served)", moved, s.registry_dir)
         self.holdouts = {st: _load_npz(cfg.get("holdout_npz") or s.holdout_npz, s.holdout_limit)
                          for st, cfg in self.stages.items()}
-        self.anchors = {st: _load_npz(cfg.get("anchors_npz") or s.anchor_npz) for st, cfg in self.stages.items()}
+        self.anchors = {st: _load_npz(cfg.get("anchors_npz") or s.anchor_npz) if s.anchor_frac > 0 else None
+                        for st, cfg in self.stages.items()}  # not loaded at all when unused (RAM)
         self.lock = threading.RLock()
         self.train_lock = threading.Lock()
         self.refresh_lock = threading.Lock()
@@ -301,6 +302,7 @@ class OnlineService:
                     torch.cuda.reset_peak_memory_stats(self.device)
                 cand, history = trainer.train_epochs(
                     start, x, y, anchors, mode="heavy", epochs=epochs, lr=self.s.lr, amp=self.amp,
+                    anchor_frac=self.s.anchor_frac,
                     max_seconds=self.s.train_max_hours * 3600)
                 if len(train) >= self.s.bn_recal_min:
                     trainer.recalibrate_bn(cand, x)

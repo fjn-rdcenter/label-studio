@@ -10,6 +10,13 @@ def _float(name: str, default: float) -> float:
     return float(os.getenv(name, default))
 
 
+def _fraction(name: str, default: float) -> float:
+    value = _float(name, default)
+    if not 0 <= value < 1:
+        raise ValueError(f"{name}={value} must be in [0, 1)")
+    return value
+
+
 def resolve_device(value: str):
     """'auto' | 'cpu' | 'cuda' | 'cuda:N' -> torch.device; fail fast if CUDA was asked for but is missing."""
     import torch
@@ -53,6 +60,7 @@ class Settings:
     min_free_vram_gb: float
     holdout_limit: int
     lr: float
+    anchor_frac: float
     base_channels: int
     erosion: str
     request_timeout: float
@@ -92,6 +100,9 @@ class Settings:
             min_free_vram_gb=_float("MIN_FREE_VRAM_GB", 3),
             holdout_limit=_int("HOLDOUT_LIMIT", 0),
             lr=_float("LR", 3e-5),  # 3e-4 wrecked the pretrained decoder in its first steps
+            # share of each batch taken from ANCHOR_NPZ; 0 by default: D10 anchors pulled the model off the project
+            # labels (learning curve 2026-11-14: light -0.018 with anchors, -0.002 without; D10 did not drop)
+            anchor_frac=_fraction("ANCHOR_FRAC", 0.0),
             # must match the baseline checkpoint (M2-B: 64 / cross)
             base_channels=_int("BASE_CHANNELS", 64),
             erosion=os.getenv("EROSION", "cross"),

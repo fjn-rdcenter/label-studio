@@ -41,7 +41,7 @@ lịch TRAIN_CRON (mặc định CN 01:00, TZ) hoặc POST /train ──> job d�
   → đọc lại mọi annotation đã duyệt từ LS; nhãn 256: ngoài ZP = nền, trong ZP không vẽ = ignore
   → chia train/val theo hash nội dung ảnh (~20% val, không bao giờ học); cần ≥ TRAIN_MIN_NEW nhãn mới
   → học tiếp từ production: decoder + BN + head (encoder đóng băng), augmentation, AdamW + cosine,
-    D10 anchor ≤ 25% mỗi batch, đủ TRAIN_EPOCHS epoch (không dừng sớm theo val: val chỉ dành cho cổng),
+    không trộn ảnh D10 (ANCHOR_FRAC=0, D10 chỉ dùng cho cổng chống quên), đủ TRAIN_EPOCHS epoch (không dừng sớm theo val: val chỉ dành cho cổng),
     giới hạn TRAIN_MAX_HOURS; hiệu chỉnh BN nếu ≥ BN_RECAL_MIN ảnh
   → cứ AUDIT_EVERY job: học thêm một bản từ baseline, thay bản warm-start nếu bản từ baseline tốt hơn
   → cổng: val ≥ PROJECT_VAL_MIN ảnh (ít hơn: chỉ ghi kết quả, không thăng cấp)
@@ -91,7 +91,7 @@ Lưu ý:
 | `BASELINE_CKPT` | — | `best.pt` của M2-B (checkpoint đầy đủ hoặc state_dict). Bỏ trống thì dùng model ngẫu nhiên, chỉ để test |
 | `BASE_CHANNELS` / `EROSION` | 64 / `cross` | Phải khớp với checkpoint |
 | `HOLDOUT_NPZ` / `HOLDOUT_LIMIT` | — / 0 | D10/valid (8 ảnh, đủ 4 lớp) cho cổng chống quên. 0 = dùng toàn bộ |
-| `ANCHOR_NPZ` | — | D10/train (32 mask) trộn vào mỗi bước huấn luyện, không vượt số mẫu dự án. Tuỳ chọn; thiếu file thì chỉ học trên dữ liệu dự án |
+| `ANCHOR_NPZ` / `ANCHOR_FRAC` | — / 0 | Ảnh D10/train trộn vào mỗi batch với tỉ lệ `ANCHOR_FRAC` (0 ≤ x < 1). Mặc định **không trộn** (file không được nạp): learning curve 14/11 cho thấy anchor kéo model lệch khỏi nhãn dự án (học nhẹ −0,018 có anchor, −0,002 không anchor) mà D10 vẫn không giảm khi bỏ anchor |
 | `TRAIN_CRON` / `TZ` | `0 1 * * 0` / `Asia/Ho_Chi_Minh` | Lịch học dài hạn (cron 5 trường, giờ địa phương); rỗng thì tắt lịch. Trong compose: `TASDF_TRAIN_CRON`, `TASDF_TZ` |
 | `TRAIN_MIN_NEW` / `TRAIN_EPOCHS` / `TRAIN_MAX_HOURS` / `LR` | 10 / 60 / 2 / 3e-5 | Ngưỡng nhãn mới để chạy theo lịch; số epoch (cố định); giới hạn giờ; learning rate (3e-4 làm hỏng decoder đã học ngay từ epoch đầu: loss 1,9 → 5,0) |
 | `PROJECT_VAL_MIN` / `PROMOTE_MIN_GAIN` / `MAX_TRAIN_VAL_GAP` | 10 / 0.005 / 0.15 | Cổng: từ bao nhiêu ảnh val thì bắt buộc tăng (vượt cả nhiễu bootstrap); giới hạn khoảng cách train − val |

@@ -59,7 +59,8 @@ def _free() -> None:
 
 
 def run_curve(train: list[dict], val: list[dict], holdout, anchors, models: dict, *, ks: list[int], seeds: int,
-              epochs: int, lr: float, amp: bool, fold=None, on_row=None, done=frozenset(), modes=MODES) -> list[dict]:
+              epochs: int, lr: float, amp: bool, fold=None, on_row=None, done=frozenset(), modes=MODES,
+              anchor_frac: float = 0.0) -> list[dict]:
     """models: {"base": nn.Module, "production": nn.Module}. Each sample: {"x": (1,H,W) tensor, "y": np.ndarray}.
     `on_row` gets every measured row as soon as it exists (persist it: a crash keeps what was done).
     `done` holds (mode, k, seed, fold) keys measured by an interrupted run; those are skipped."""
@@ -93,6 +94,7 @@ def run_curve(train: list[dict], val: list[dict], holdout, anchors, models: dict
                     continue
                 t0 = time.time()
                 cand, _ = trainer.train_epochs(models[start], x, y, anchors, mode=mode, epochs=epochs, lr=lr, amp=amp,
+                                               anchor_frac=anchor_frac,
                                                seed=seed)
                 emit({"mode": name, "k": k, "seed": seed,
                       "val": float(np.mean(dice_per_image(cand, vx, vys))) if val else None,
@@ -206,7 +208,6 @@ def main(argv=None) -> None:
     ap.add_argument("--reports", default="/data/tasdf-online/reports")
     ap.add_argument("--resume", help="JSONL of an interrupted run: append to it and skip rows it already has")
     ap.add_argument("--fold", type=int, help="leave-one-out only: run this fold and exit without a report")
-    ap.add_argument("--no-anchors", action="store_true", help="train without mixing ANCHOR_NPZ images into batches")
     args = ap.parse_args(argv)
 
     from tasdf_online import learner
@@ -225,7 +226,7 @@ def main(argv=None) -> None:
     base = base.to(device).eval()
     prod, prod_name = production_model(s, base)
     holdout = _load_npz(s.holdout_npz, s.holdout_limit)
-    anchors = _load_npz(s.anchor_npz) if s.anchor_npz and not args.no_anchors else None
+    anchors = _load_npz(s.anchor_npz) if s.anchor_npz and s.anchor_frac > 0 else None  # same as the job (ANCHOR_FRAC)
     projects = [int(p) for p in args.projects.split(",") if p]
     train, val, annotators = collect(s, projects)
     print(f"train {len(train)} / val {len(val)} annotations from projects {projects}", flush=True)
@@ -255,7 +256,8 @@ def main(argv=None) -> None:
     if len(val) >= VAL_MIN:
         evaluation = f"fixed validation split ({len(val)} images, content hash, never trained on)"
         rows = run_curve(train, val, holdout, anchors, models, ks=ks_for(len(train)), seeds=args.seeds,
-                         epochs=args.epochs, lr=args.lr, amp=amp, on_row=persist, done=done, modes=modes)
+                         epochs=args.epochs, lr=args.lr, amp=amp, on_row=persist, done=done, modes=modes,
+                         anchor_frac=s.anchor_frac)
     else:  # too few validation images for a fixed split: leave-one-out over everything reviewed
         pool = train + val
         evaluation = f"leave-one-out CV estimate over {len(pool)} images (fewer than {VAL_MIN} fixed val images)"
@@ -265,7 +267,8 @@ def main(argv=None) -> None:
                 continue
             rest = pool[:i] + pool[i + 1:]
             rows += run_curve(rest, [held], holdout, anchors, models, ks=ks_for(len(rest)), seeds=1,
-                              epochs=args.epochs, lr=args.lr, amp=amp, fold=i, on_row=persist, done=done, modes=modes)
+                              epochs=args.epochs, lr=args.lr, amp=amp, fold=i, on_row=persist, done=done, modes=modes,
+                              anchor_frac=s.anchor_frac)
         if args.fold is not None:  # one chunk of a run split to keep the GPU cool; report on the final call
             return
     rows = old + rows
@@ -273,7 +276,7 @@ def main(argv=None) -> None:
     at = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     meta = {"at": at, "projects": projects, "n_train": len(train), "n_val": len(val), "epochs": args.epochs,
             "seeds": args.seeds if len(val) >= VAL_MIN else 1, "production": prod_name, "annotators": len(annotators - {None}),
-            "evaluation": evaluation + ("; no anchors" if anchors is None else "; anchors <= 25% of each batch")}
+            "evaluation": evaluation + ("; no anchors" if anchors is None else f"; anchors {s.anchor_frac:.0%} of each batch")}
     md = to_markdown(summary, meta)
     (out / f"learning_curve-{stamp}.md").write_text(md)
     best = max((a for a in summary if a["mode"] in ("light", "heavy-base", "heavy-warm") and a["val"]),

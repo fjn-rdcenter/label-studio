@@ -116,8 +116,20 @@ def test_dashboard_not_mounted_when_disabled(settings):
     assert c.post("/dashboard/toggle", json={"enabled": True}, headers=AUTH).status_code == 404
 
 
+def test_anchors_load_only_when_anchor_frac_is_set(settings, tmp_path, monkeypatch):
+    path = tmp_path / "anchors.npz"
+    np.savez(path, images=np.zeros((2, 256, 256), np.uint8), masks=np.stack([blastocyst_mask()] * 2))
+    off = app_module.OnlineService(dataclasses.replace(settings, anchor_npz=str(path), anchor_frac=0.0))
+    assert off.anchors["blastocyst"] is None  # default ANCHOR_FRAC=0: the file is not even loaded
+    on = app_module.OnlineService(dataclasses.replace(settings, anchor_npz=str(path), anchor_frac=0.25))
+    assert on.anchors["blastocyst"] is not None
+    monkeypatch.setenv("ANCHOR_FRAC", "1")  # a whole batch of anchors would leave no room for project images
+    with pytest.raises(ValueError, match="ANCHOR_FRAC"):
+        app_module.Settings.from_env()
+
+
 def test_missing_anchor_file_is_optional(settings, tmp_path):
-    svc = app_module.OnlineService(dataclasses.replace(settings, anchor_npz=str(tmp_path / "missing.npz")))
+    svc = app_module.OnlineService(dataclasses.replace(settings, anchor_npz=str(tmp_path / "missing.npz"), anchor_frac=0.25))
     assert svc.anchors["blastocyst"] is None
 
 
