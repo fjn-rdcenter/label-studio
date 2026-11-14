@@ -206,6 +206,7 @@ def main(argv=None) -> None:
     ap.add_argument("--reports", default="/data/tasdf-online/reports")
     ap.add_argument("--resume", help="JSONL of an interrupted run: append to it and skip rows it already has")
     ap.add_argument("--fold", type=int, help="leave-one-out only: run this fold and exit without a report")
+    ap.add_argument("--no-anchors", action="store_true", help="train without mixing ANCHOR_NPZ images into batches")
     args = ap.parse_args(argv)
 
     from tasdf_online import learner
@@ -224,7 +225,7 @@ def main(argv=None) -> None:
     base = base.to(device).eval()
     prod, prod_name = production_model(s, base)
     holdout = _load_npz(s.holdout_npz, s.holdout_limit)
-    anchors = _load_npz(s.anchor_npz) if s.anchor_npz else None
+    anchors = _load_npz(s.anchor_npz) if s.anchor_npz and not args.no_anchors else None
     projects = [int(p) for p in args.projects.split(",") if p]
     train, val, annotators = collect(s, projects)
     print(f"train {len(train)} / val {len(val)} annotations from projects {projects}", flush=True)
@@ -272,7 +273,7 @@ def main(argv=None) -> None:
     at = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     meta = {"at": at, "projects": projects, "n_train": len(train), "n_val": len(val), "epochs": args.epochs,
             "seeds": args.seeds if len(val) >= VAL_MIN else 1, "production": prod_name, "annotators": len(annotators - {None}),
-            "evaluation": evaluation}
+            "evaluation": evaluation + ("; no anchors" if anchors is None else "; anchors <= 25% of each batch")}
     md = to_markdown(summary, meta)
     (out / f"learning_curve-{stamp}.md").write_text(md)
     best = max((a for a in summary if a["mode"] in ("light", "heavy-base", "heavy-warm") and a["val"]),
