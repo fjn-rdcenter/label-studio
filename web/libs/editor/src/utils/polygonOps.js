@@ -69,6 +69,87 @@ function absorbVertices(ring, big, tol) {
   return out;
 }
 
+// Of the union's holes keep the largest one that lies mostly in a hole of the inputs (e.g. a ring's
+// inner contour); holes the merge itself created are gaps between the pieces and get filled.
+function inheritedHole(holes, inputs) {
+  const inputHoles = inputs.filter((p) => p.holes?.length).map((p) => [p.holes]);
+
+  if (!holes.length || !inputHoles.length) return [];
+  const covered = polygonClipping.union(...inputHoles);
+  const kept = holes.filter(
+    (h) => multiArea(polygonClipping.intersection([h], covered)) >= Math.abs(signedArea(h)) / 2,
+  );
+
+  if (!kept.length) return [];
+  return openRing(kept.reduce((a, b) => (Math.abs(signedArea(b)) > Math.abs(signedArea(a)) ? b : a)));
+}
+
+// Close slits: a vertex within eps of a non-neighbouring edge cuts the outline in two loops; the
+// loop running the opposite way encloses outside space (a crack between merged pieces), so it is
+// dropped and the outline jumps straight across. Loops running the same way are real thin parts.
+export function closeSlits(ring, eps) {
+  let out = [...ring];
+  const sign = Math.sign(signedArea(out));
+  const opposite = (loop) => Math.sign(signedArea(loop)) === -sign && Math.abs(signedArea(loop)) > 1e-12;
+
+  for (let changed = true; changed && out.length > 3; ) {
+    changed = false;
+    const n = out.length;
+
+    for (let i = 0; i < n && !changed; i++) {
+      // edges (j, j+1) that share no vertex with the edges around i
+      for (let k = 2; k <= n - 3 && !changed; k++) {
+        const j = (i + k) % n;
+        const [a, b] = [out[j], out[(j + 1) % n]];
+
+        if (distToSegment(out[i], a, b) > eps) continue;
+        const len2 = dist2(a, b);
+        const t = len2
+          ? Math.max(0, Math.min(1, ((out[i][0] - a[0]) * (b[0] - a[0]) + (out[i][1] - a[1]) * (b[1] - a[1])) / len2))
+          : 0;
+        const q = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
+        const arc = (from, to) => Array.from({ length: ((to - from + n) % n) + 1 }, (_, s) => out[(from + s) % n]);
+        const loopA = [...arc(i, j), q]; // i forward to j, then across to q
+        const loopB = [q, ...arc((j + 1) % n, i)]; // q, j+1 forward to i
+
+        if (opposite(loopA)) out = loopB;
+        else if (opposite(loopB)) out = loopA;
+        else continue;
+        out = out.filter((p, s) => dist2(p, out[(s + 1) % out.length]) > 0);
+        changed = true;
+      }
+    }
+  }
+  return out;
+}
+
+// Drop vertices that barely shape the outline: one of two neighbours closer than eps/2, or a vertex
+// whose triangle with its neighbours is under eps²/2 (1px zigzags, sliver spikes, collinear points).
+// Smallest triangle first, so real corners (large triangles) stay; at least 3 vertices remain.
+export function dropTinyVertices(ring, eps) {
+  const out = [...ring];
+  const minArea = (eps * eps) / 2;
+  const tri = (a, b, c) => Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / 2;
+  const close = (a, b) => dist2(a, b) < (eps / 2) ** 2;
+
+  while (out.length > 3) {
+    const n = out.length;
+    let best = -1;
+    let bestArea = Number.POSITIVE_INFINITY;
+
+    out.forEach((p, i) => {
+      const prev = out[(i - 1 + n) % n];
+      const next = out[(i + 1) % n];
+      const a = tri(prev, p, next);
+
+      if ((a < minArea || close(p, prev) || close(p, next)) && a < bestArea) [best, bestArea] = [i, a];
+    });
+    if (best < 0) break;
+    out.splice(best, 1);
+  }
+  return out;
+}
+
 const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
 
 // Convex hull (Andrew's monotone chain), counter-clockwise, no collinear points
@@ -90,15 +171,26 @@ export function convexHull(points) {
  * Union polygons into one. Polygons that touch or overlap are unioned; if they end up in
  * separate pieces, the result is the convex hull of all of them (one big shape, no hole).
  * @param {{points: number[][], holes?: number[][]}[]} polygons
+ * Holes the merge creates (gaps between the pieces) are filled; only an input's own hole is kept.
  * @param {number} tol with tol > 0, vertices of the smaller polygons lying within tol of the
  *   largest one are dropped so they blend into it (hole contour of the result is left as is)
+ * @param {number} eps with eps > 0, slits narrower than eps left between the pieces are closed and
+ *   vertices that barely shape the outline (near duplicates, 1px zigzags, sliver spikes) are dropped
  * @returns {{points: number[][], holes: number[][], bigIndex: number, absorbed: boolean} | {error: string}}
  *   bigIndex: the largest polygon; absorbed: every other one lies at least half inside it
  */
-export function mergePolygons(polygons, tol = 0) {
+export function mergePolygons(polygons, tol = 0, eps = 0) {
   const result = polygonClipping.union(...polygons.map(toGeom));
-  const merged =
-    result.length === 1 ? fromMulti(result)[0] : { points: convexHull(polygons.flatMap((p) => p.points)), holes: [] };
+  let merged = { points: convexHull(polygons.flatMap((p) => p.points)), holes: [] };
+
+  if (result.length === 1) {
+    const [outer, ...holes] = result[0];
+
+    merged = {
+      points: eps > 0 ? dropTinyVertices(closeSlits(openRing(outer), eps), eps) : openRing(outer),
+      holes: inheritedHole(holes, polygons),
+    };
+  }
   const areas = polygons.map(polyArea);
   const bigIndex = areas.indexOf(Math.max(...areas));
   const big = polygons[bigIndex];

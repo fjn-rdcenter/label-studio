@@ -1,9 +1,11 @@
 import {
   carvePolygons,
   clampDelta,
+  closeSlits,
   convexHull,
   cutAlongLine,
   cutPolygon,
+  dropTinyVertices,
   mergePolygons,
   pointsInRect,
   signedArea,
@@ -57,7 +59,7 @@ describe("mergePolygons", () => {
     expect(area(hull)).toBeCloseTo(16);
   });
 
-  it("keeps a single enclosed hole as a ring", () => {
+  it("fills a hole the merge creates", () => {
     const u = [
       [0, 0],
       [3, 0],
@@ -81,10 +83,11 @@ describe("mergePolygons", () => {
     ]);
 
     expect(res.error).toBeUndefined();
-    expect(area(res.holes)).toBeCloseTo(1.5);
+    expect(res.holes).toEqual([]);
+    expect(area(res.points)).toBeCloseTo(10.5);
   });
 
-  it("keeps one hole when the result has several", () => {
+  it("fills every hole the merge creates", () => {
     const comb = [
       [0, 0],
       [5, 0],
@@ -111,42 +114,163 @@ describe("mergePolygons", () => {
       },
     ]);
 
-    expect(res.error).toBeUndefined();
-    expect(area(res.holes)).toBeCloseTo(1.5);
-    // outer 5 x 3.5, one 1 x 1.5 notch left open, the other filled
-    expect(area(res.points) - area(res.holes)).toBeCloseTo(16);
+    expect(res.holes).toEqual([]);
+    expect(area(res.points)).toBeCloseTo(17.5);
   });
 
-  it("keeps the largest hole and fills the smaller ones", () => {
-    // notches 1 and 2 wide, closed by a bar: holes of 1.5 and 3
-    const comb = [
-      [0, 0],
-      [6, 0],
-      [6, 3],
-      [5, 3],
-      [5, 1],
-      [3, 1],
-      [3, 3],
-      [2, 3],
-      [2, 1],
-      [1, 1],
-      [1, 3],
-      [0, 3],
-    ];
-    const res = mergePolygons([
-      { points: comb },
-      {
-        points: [
-          [0, 2.5],
-          [6, 2.5],
-          [6, 3.5],
-          [0, 3.5],
-        ],
-      },
-    ]);
+  it("keeps an input's own hole (a ring merged with a piece on its rim)", () => {
+    const ring = { points: square(0, 0, 10), holes: square(3, 3, 4) };
+    const res = mergePolygons([ring, { points: square(9, 4, 3), holes: [] }]);
 
-    expect(area(res.holes)).toBeCloseTo(3);
-    expect(area(res.points) - area(res.holes)).toBeCloseTo(21 - 3);
+    expect(area(res.holes)).toBeCloseTo(16);
+    expect(area(res.points) - area(res.holes)).toBeCloseTo(106 - 16);
+  });
+
+  it("keeps the largest inherited hole when two rings merge", () => {
+    const a = { points: square(0, 0, 10), holes: square(2, 2, 3) };
+    const b = { points: square(9, 0, 10), holes: square(13, 2, 5) };
+    const res = mergePolygons([a, b]);
+
+    expect(area(res.holes)).toBeCloseTo(25);
+    expect(area(res.points) - area(res.holes)).toBeCloseTo(190 - 25);
+  });
+
+  it("fills a thin gap enclosed between two pieces", () => {
+    const a = {
+      points: [
+        [0, 0],
+        [5, 0],
+        [5, 10],
+        [0, 10],
+      ],
+    };
+    // hugs a's right side 0.2 away, its arms overlap a at the top and the bottom
+    const b = {
+      points: [
+        [4, 0],
+        [10, 0],
+        [10, 10],
+        [4, 10],
+        [4, 9],
+        [5.2, 9],
+        [5.2, 1],
+        [4, 1],
+      ],
+    };
+    const res = mergePolygons([a, b]);
+
+    expect(res.holes).toEqual([]);
+    expect(area(res.points)).toBeCloseTo(100);
+  });
+
+  it("closes an open slit between two pieces", () => {
+    const a = {
+      points: [
+        [0, 0],
+        [5, 0],
+        [5, 10],
+        [0, 10],
+      ],
+    };
+    // 0.2 away from a's right side, joined to it only at the bottom: a slit open at the top
+    const b = {
+      points: [
+        [4, 0],
+        [10, 0],
+        [10, 10],
+        [5.2, 10],
+        [5.2, 1],
+        [4, 1],
+      ],
+    };
+    const res = mergePolygons([a, b], 0, 0.5);
+    const onBox = (p) => [0, 10].includes(p[0]) || [0, 10].includes(p[1]);
+
+    expect(area(res.points)).toBeCloseTo(100);
+    expect(res.points.every(onBox)).toBe(true);
+    // without eps the slit stays
+    expect(area(mergePolygons([a, b]).points)).toBeCloseTo(100 - 0.2 * 9);
+  });
+
+  it("closeSlits never cuts a thin part of the polygon itself", () => {
+    // 0.2-wide spike: its loop runs the same way as the outline, so it is not a slit
+    const spiky = [
+      [0, 0],
+      [5, 0],
+      [5, 4.9],
+      [9, 4.9],
+      [9, 5.1],
+      [5, 5.1],
+      [5, 10],
+      [0, 10],
+    ];
+
+    expect(area(closeSlits(spiky, 0.5))).toBeCloseTo(50 + 4 * 0.2);
+  });
+
+  it("keeps a spike wider than eps", () => {
+    const spiky = {
+      points: [
+        [0, 0],
+        [5, 0],
+        [5, 4],
+        [9, 4],
+        [9, 6],
+        [5, 6],
+        [5, 10],
+        [0, 10],
+      ],
+    };
+    const res = mergePolygons([spiky, { points: square(2, 2, 2), holes: [] }], 0, 0.5);
+
+    expect(area(res.points)).toBeCloseTo(50 + 4 * 2);
+  });
+});
+
+describe("dropTinyVertices", () => {
+  it("drops near-duplicate vertices, 1px zigzags and sliver spikes but keeps corners", () => {
+    const ring = [
+      [0, 0],
+      [5, 0],
+      [5.3, 0.1], // near duplicate of [5, 0]
+      [10, 0],
+      [10, 4],
+      [10.1, 5], // tiny zigzag
+      [10, 6],
+      [10, 10],
+      [5.5, 10],
+      [5.4, 14], // sliver spike, 0.2 wide
+      [5.3, 10],
+      [0, 10],
+    ];
+    const out = dropTinyVertices(ring, 1);
+
+    expect(out).toEqual(
+      expect.arrayContaining([
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+      ]),
+    );
+    expect(out.length).toBeLessThan(ring.length);
+    expect(out).not.toEqual(expect.arrayContaining([[10.1, 5]]));
+    expect(out).not.toEqual(expect.arrayContaining([[5.4, 14]]));
+    // the shape moves by less than eps: only the junk's own area changes
+    expect(Math.abs(area(out) - 100)).toBeLessThan(1);
+  });
+
+  it("never goes below 3 vertices", () => {
+    expect(
+      dropTinyVertices(
+        [
+          [0, 0],
+          [0.1, 0],
+          [0, 0.1],
+        ],
+        1,
+      ),
+    ).toHaveLength(3);
   });
 });
 

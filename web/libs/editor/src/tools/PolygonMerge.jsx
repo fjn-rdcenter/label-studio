@@ -10,6 +10,8 @@ import { mergePolygons, withGeometry } from "../utils/polygonOps";
 
 // vertices of a smaller polygon within this many screen px of the largest one are dropped
 const BLEND_PX = 8;
+// slits narrower than this many canvas px (not screen: they are data gaps, ~1 image px) get closed
+const SLIT_PX = 3;
 
 const labelKeys = (value) => Object.keys(value).filter((k) => k.endsWith("labels"));
 
@@ -79,6 +81,7 @@ const _Tool = types
       const merged = mergePolygons(
         regions.map((r) => ({ points: toCanvas(r.points), holes: toCanvas(r.holes) })),
         BLEND_PX / (self.obj?.zoomScale || 1),
+        SLIT_PX,
       );
 
       if (merged.error) {
