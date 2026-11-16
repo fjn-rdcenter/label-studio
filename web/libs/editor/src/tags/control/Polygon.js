@@ -70,7 +70,12 @@ const Model = types
   .volatile((self) => ({
     toolNames: [
       ...(self.polygonmode !== "ring"
-        ? [...(self.showmanualtools ? ["Polygon"] : []), ...(self.smart ? ["OpenCVPolygon"] : [])]
+        ? [
+            ...(self.showmanualtools ? ["Polygon"] : []),
+            ...(self.smart ? ["OpenCVPolygon"] : []),
+            "PolygonMerge",
+            "PolygonSplit",
+          ]
         : []),
       ...(self.polygonmode !== "polygon"
         ? [...(self.showmanualtools ? ["RingPolygon"] : []), ...(self.smart ? ["OpenCVRingPolygon"] : [])]

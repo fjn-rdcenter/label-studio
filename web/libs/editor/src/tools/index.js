@@ -15,6 +15,8 @@ import { Brightness } from "./Brightness";
 import { Contrast } from "./Contrast";
 import { MagicWand } from "./MagicWand";
 import { Selection } from "./Selection";
+import { PolygonMerge } from "./PolygonMerge";
+import { PolygonSplit } from "./PolygonSplit";
 
 export {
   Brush,
@@ -34,4 +36,6 @@ export {
   Zoom,
   MagicWand,
   Selection,
+  PolygonMerge,
+  PolygonSplit,
 };

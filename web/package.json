@@ -73,6 +73,7 @@
     "papaparse": "^5.4.1",
     "pleasejs": "^0.4.2",
     "pngjs": "^7.0.0",
+    "polygon-clipping": "^0.15.7",
     "rc-tree": "^5.7.8",
     "react": "17.0.2",
     "react-beautiful-dnd": "^13.1.1",

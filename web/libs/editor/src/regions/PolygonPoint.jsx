@@ -311,9 +311,12 @@ const PolygonPointView = observer(({ item, name }) => {
         scaleX={1 / (item.stage.zoomScale || 1)}
         scaleY={1 / (item.stage.zoomScale || 1)}
         onDblClick={() => {
+          if (item.getSkipInteractions()) return;
           item.parent.deletePoint(item);
         }}
         onClick={(ev) => {
+          // let tools that skip region interactions (e.g. polygon split) receive the click
+          if (item.getSkipInteractions()) return;
           if (isFF(FF_DEV_2431) && ev.evt.altKey) return item.parent.deletePoint(item);
           if (item.parent.isDrawing && item.contour.length === 1) return;
           // don't unselect polygon on point click

@@ -203,7 +203,7 @@ const Model = types
       },
 
       handleLineClick({ e, flattenedPoints, insertIdx, contour = "outer" }) {
-        if (!self.closed || !self.selected) return;
+        if (!self.closed || !self.selected || self.parent.getSkipInteractions()) return;
 
         e.cancelBubble = true;
 
