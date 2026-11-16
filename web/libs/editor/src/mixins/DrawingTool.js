@@ -1,4 +1,4 @@
-import { types } from "mobx-state-tree";
+import { isAlive, types } from "mobx-state-tree";
 
 import Utils from "../utils";
 import throttle from "lodash.throttle";
@@ -16,6 +16,9 @@ const DrawingTool = types
   .volatile(() => {
     return {
       currentArea: null,
+      // shape tools (polygon, ring, rectangle, ellipse...) may draw without a label and
+      // hand over to Move once a shape is done
+      shapeTool: false,
     };
   })
   .views((self) => {
@@ -31,6 +34,7 @@ const DrawingTool = types
         return {};
       },
       isIncorrectControl() {
+        if (self.shapeTool) return false; // unlabeled shapes get their label afterwards
         return self.tagTypes.stateTypes === self.control.type && !self.control.isSelected;
       },
       isIncorrectLabel() {
@@ -183,7 +187,24 @@ const DrawingTool = types
         );
       },
 
+      // A shape starts while regions are selected (e.g. picked in the outliner): drop them and the
+      // labels they show, those belong to the old regions and must not label the new shape.
+      releaseSelection() {
+        if (self.annotation.hasSelection) self.annotation.unselectAll();
+      },
+
+      // After a shape is done hand over to Move with the new region selected, so it can be moved,
+      // labeled or edited right away while drawing tools only ever draw.
+      switchToMove(area) {
+        if (!self.shapeTool || !area || !isAlive(area)) return;
+        const move = self.manager?.allTools().find((t) => t.toolName === "MoveTool");
+
+        if (move) self.manager.selectTool(move, true);
+        self.annotation.selectArea(area);
+      },
+
       startDrawing(x, y) {
+        self.releaseSelection();
         self.annotation.history.freeze();
         self.mode = "drawing";
         self.currentArea = self.createDrawingRegion(self.createRegionOptions({ x, y }));
@@ -198,8 +219,10 @@ const DrawingTool = types
         }
       },
       _finishDrawing() {
-        self.commitDrawingRegion();
+        const area = self.commitDrawingRegion();
+
         self._resetState();
+        self.switchToMove(area);
       },
       _resetState() {
         self.annotation.setIsDrawing(false);
@@ -362,14 +385,8 @@ const MultipleClicksDrawingTool = DrawingTool.named("MultipleClicksMixin")
     const MOUSE_UP_EVENT = 2;
     const CLICK_EVENT = 3;
     let lastClickTs = 0;
-    const Super = {
-      canStartDrawing: self.canStartDrawing,
-    };
 
     return {
-      canStartDrawing() {
-        return Super.canStartDrawing() && !self.annotation.regionStore.hasSelection;
-      },
       nextPoint(x, y) {
         const area = self.getCurrentArea();
         const object = self.obj;

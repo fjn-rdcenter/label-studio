@@ -12,6 +12,7 @@ const _Tool = types
     group: "segmentation",
     shortcut: "O",
   })
+  .volatile(() => ({ shapeTool: true }))
   .views((self) => {
     const Super = {
       createRegionOptions: self.createRegionOptions,
@@ -40,7 +41,9 @@ const _Tool = types
         return "Ellipse Based Polygon region";
       },
       get iconComponent() {
-        return self.dynamic ? NodeViews.EllipseBasedPolygonRegionModel.altIcon : NodeViews.EllipseBasedPolygonRegionModel.icon;
+        return self.dynamic
+          ? NodeViews.EllipseBasedPolygonRegionModel.altIcon
+          : NodeViews.EllipseBasedPolygonRegionModel.icon;
       },
       get shouldRenderView() {
         return true;
@@ -100,7 +103,7 @@ const _Tool = types
 
         return s.radiusX > self.MIN_SIZE.X && s.radiusY > self.MIN_SIZE.Y;
       },
-    }
+    };
   });
 
 const EllipseBasedPolygon = types.compose(_Tool.name, ToolMixin, BaseTool, TwoPointsDrawingTool, _Tool);

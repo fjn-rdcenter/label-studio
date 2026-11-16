@@ -101,11 +101,10 @@ const ToolMixin = types
      * @param e
      * @returns {boolean}
      */
-    shouldSkipInteractions(e) {
-      const isCtrlPressed = e.evt && (e.evt.metaKey || e.evt.ctrlKey);
-      const hasSelection = self.control.annotation.hasSelection;
-
-      return !!isCtrlPressed && !hasSelection;
+    shouldSkipInteractions() {
+      // Only Move (Selection tool, overrides this) clicks, drags and edits regions; every other
+      // tool draws straight through them. Relation mode still needs region clicks to link them.
+      return !self.control?.annotation?.relationMode;
     },
   }));
 

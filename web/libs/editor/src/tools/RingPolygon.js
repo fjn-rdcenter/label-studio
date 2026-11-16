@@ -8,6 +8,7 @@ import BaseTool, { DEFAULT_DIMENSIONS } from "./Base";
 
 const RingPolygonBase = types
   .model("RingPolygonBase", {})
+  .volatile(() => ({ shapeTool: true }))
   .views((self) => ({
     get tagTypes() {
       return {
@@ -92,7 +93,7 @@ const RingPolygonBase = types
       },
       placePoint(_, x, y) {
         if (!self.currentArea) {
-          if (!self.canStartDrawing() || self.annotation.regionStore.hasSelection) return;
+          if (!self.canStartDrawing()) return;
           self.startDrawing(x, y);
           self.listenForClose();
           return;
