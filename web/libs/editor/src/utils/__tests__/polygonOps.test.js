@@ -1,4 +1,12 @@
-import { cutAlongLine, cutPolygon, mergePolygons, signedArea, snapToContour, withGeometry } from "../polygonOps";
+import {
+  carvePolygons,
+  cutAlongLine,
+  cutPolygon,
+  mergePolygons,
+  signedArea,
+  snapToContour,
+  withGeometry,
+} from "../polygonOps";
 
 const square = (x, y, s) => [
   [x, y],
@@ -146,6 +154,66 @@ describe("mergePolygons absorbing a small polygon", () => {
     expect(mergePolygons([big, hugging]).absorbed).toBe(true);
     // corner overlap only: 1 of 16
     expect(mergePolygons([big, { points: square(9, 9, 4), holes: [] }]).absorbed).toBe(false);
+  });
+});
+
+describe("carvePolygons", () => {
+  const net = (p) => area(p.points) - (p.holes.length ? area(p.holes) : 0);
+
+  it("puts a hole in the big polygon where the small one sits", () => {
+    const res = carvePolygons([
+      { points: square(4, 4, 2), holes: [] },
+      { points: square(0, 0, 10), holes: [] },
+    ]);
+
+    expect(res.outerIndex).toBe(1);
+    expect(res.pieces).toHaveLength(1);
+    expect(area(res.pieces[0].holes)).toBeCloseTo(4);
+    expect(net(res.pieces[0])).toBeCloseTo(96);
+  });
+
+  it("widens a ring's hole by the polygon covering it (TE/BC), picking the ring by its outline", () => {
+    // thin ring: solid area 36 < 81 of the carving polygon, outline 100 > 81
+    const ring = { points: square(0, 0, 10), holes: square(1, 1, 8) };
+    const res = carvePolygons([ring, { points: square(0.5, 0.5, 9), holes: [] }]);
+
+    expect(res.outerIndex).toBe(0);
+    expect(res.pieces).toHaveLength(1);
+    expect(area(res.pieces[0].holes)).toBeCloseTo(81);
+    expect(net(res.pieces[0])).toBeCloseTo(19);
+  });
+
+  it("splits the big polygon when the small one crosses it", () => {
+    const res = carvePolygons([
+      { points: square(0, 0, 10), holes: [] },
+      {
+        points: [
+          [4, -1],
+          [6, -1],
+          [6, 11],
+          [4, 11],
+        ],
+        holes: [],
+      },
+    ]);
+
+    expect(res.pieces).toHaveLength(2);
+    expect(res.pieces.reduce((a, p) => a + net(p), 0)).toBeCloseTo(80);
+  });
+
+  it("refuses polygons that don't overlap and results with two holes", () => {
+    expect(
+      carvePolygons([
+        { points: square(0, 0, 2), holes: [] },
+        { points: square(5, 5, 1), holes: [] },
+      ]).error,
+    ).toBeTruthy();
+    expect(
+      carvePolygons([
+        { points: square(0, 0, 10), holes: square(1, 1, 2) },
+        { points: square(6, 6, 2), holes: [] },
+      ]).error,
+    ).toBeTruthy();
   });
 });
 

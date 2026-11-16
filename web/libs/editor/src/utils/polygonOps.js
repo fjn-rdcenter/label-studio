@@ -113,6 +113,29 @@ export function cutPolygon(polygon, area) {
 }
 
 /**
+ * Carve the other polygons out of the one with the largest outline (holes counted as covered,
+ * so a ring wins over a solid polygon sitting in its hole). The carving polygons stay as they are.
+ * @param {{points: number[][], holes?: number[][]}[]} polygons
+ * @returns {{outerIndex: number, pieces: object[]} | {error: string}} pieces replace polygons[outerIndex]
+ */
+export function carvePolygons(polygons) {
+  const outlines = polygons.map((p) => Math.abs(signedArea(p.points)));
+  const outerIndex = outlines.indexOf(Math.max(...outlines));
+  const outer = toGeom(polygons[outerIndex]);
+  const others = polygons.filter((_, i) => i !== outerIndex).map(toGeom);
+
+  if (!others.some((g) => multiArea(polygonClipping.intersection(outer, g)) > 0)) {
+    return { error: "Các polygon không chồng lên nhau." };
+  }
+
+  const pieces = fromMulti(polygonClipping.difference(outer, ...others));
+
+  if (!pieces) return { error: TOO_MANY_HOLES };
+  if (!pieces.length) return { error: "Polygon lớn bị khoét hết." };
+  return { outerIndex, pieces };
+}
+
+/**
  * Snap a point to the nearest vertex (preferred) or edge of the given rings.
  * @returns {{ring: number, edge: number, t: number, point: number[]} | null}
  *   ring index, edge i (from ring[i] to ring[i + 1]) and position t along it

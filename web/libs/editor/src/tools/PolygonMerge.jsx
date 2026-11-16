@@ -20,6 +20,23 @@ const labelSignature = (results) =>
     .sort()
     .join(";");
 
+// Two or more selected, closed, editable polygons of this tool's control and image, or null
+export const selectedPolygons = (tool) => {
+  const regions = tool.annotation?.selectedRegions ?? [];
+  const ok =
+    regions.length > 1 &&
+    regions.every(
+      (r) =>
+        r.type === "polygonregion" &&
+        r.closed &&
+        !r.isReadOnly() &&
+        r.parent?.name === tool.obj?.name &&
+        r.results.some((res) => res.from_name === tool.control),
+    );
+
+  return ok ? regions : null;
+};
+
 const ToolView = observer(({ item }) => (
   <Tool
     label="Gộp polygon"
@@ -44,19 +61,7 @@ const _Tool = types
 
     // Selected polygons this tool may merge, or null
     get mergeRegions() {
-      const regions = self.annotation?.selectedRegions ?? [];
-      const ok =
-        regions.length > 1 &&
-        regions.every(
-          (r) =>
-            r.type === "polygonregion" &&
-            r.closed &&
-            !r.isReadOnly() &&
-            r.parent?.name === self.obj?.name &&
-            r.results.some((res) => res.from_name === self.control),
-        );
-
-      return ok ? regions : null;
+      return selectedPolygons(self);
     },
   }))
   .actions((self) => ({

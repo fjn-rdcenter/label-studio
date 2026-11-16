@@ -7,10 +7,14 @@ import ToolMixin from "../mixins/Tool";
 import { Tool } from "../components/Toolbar/Tool";
 import InfoModal from "../components/Infomodal/Infomodal";
 import { IconSplitTool } from "../assets/icons";
-import { cutAlongLine, cutPolygon, snapToContour, withGeometry } from "../utils/polygonOps";
+import { carvePolygons, cutAlongLine, cutPolygon, snapToContour, withGeometry } from "../utils/polygonOps";
+import { selectedPolygons } from "./PolygonMerge";
 
 // how close (screen px) a click must be to snap to the polygon or to close the drawn area
 const SNAP_PX = 8;
+
+const toCanvas = (points) => points.map((p) => [p.canvasX, p.canvasY]);
+const regionGeometry = (r) => ({ points: toCanvas(r.points), holes: toCanvas(r.holes) });
 
 const ToolView = observer(({ item }) => (
   <Tool
@@ -20,8 +24,10 @@ const ToolView = observer(({ item }) => (
     active={item.selected}
     icon={<IconSplitTool />}
     tool={item}
-    disabled={!item.splitTarget}
+    disabled={!item.splitTarget && !item.carveRegions}
     onClick={() => {
+      // several polygons selected: carve the others out of the big one right away
+      if (item.carveRegions) return item.carve();
       if (!item.selected) item.manager.selectTool(item, true);
     }}
   />
@@ -51,6 +57,11 @@ const _Tool = types
         r.results.some((res) => res.from_name === self.control)
         ? r
         : null;
+    },
+
+    // Selected polygons to carve one out of another, or null
+    get carveRegions() {
+      return selectedPolygons(self);
     },
   }))
   .actions((self) => {
@@ -118,8 +129,7 @@ const _Tool = types
           const region = self.splitTarget;
 
           if (!region) return;
-          const toCanvas = (points) => points.map((p) => [p.canvasX, p.canvasY]);
-          const polygon = { points: toCanvas(region.points), holes: toCanvas(region.holes) };
+          const polygon = regionGeometry(region);
           const rings = [polygon.points, polygon.holes].filter((r) => r.length);
 
           const start = snapToContour(rings, pt, tolerance());
@@ -153,14 +163,29 @@ const _Tool = types
           InfoModal.warning(res.error);
           return;
         }
+        // new pieces first so the first created region is the cut-out one
+        self.replaceRegion(region, [...res.inside, ...res.outside]);
+      },
 
+      carve() {
+        // the hotkey fires even when the button is disabled
+        const regions = self.carveRegions;
+
+        if (!regions) return;
+        const res = carvePolygons(regions.map(regionGeometry));
+
+        if (res.error) {
+          InfoModal.warning(res.error);
+          return;
+        }
+        self.replaceRegion(regions[res.outerIndex], res.pieces);
+      },
+
+      // Replace a region by pieces given in canvas coords, keeping its results (labels) on each piece
+      replaceRegion(region, canvasPieces) {
         // canvas coords -> percent, as PolygonRegion.serialize does
         const toPerc = (ring) => ring.map(([x, y]) => [region.convertXToPerc(x), region.convertYToPerc(y)]);
-        // new pieces first so the first created region is the cut-out one
-        const pieces = [...res.inside, ...res.outside].map((p) => ({
-          points: toPerc(p.points),
-          holes: toPerc(p.holes),
-        }));
+        const pieces = canvasPieces.map((p) => ({ points: toPerc(p.points), holes: toPerc(p.holes) }));
         const serialized = region.results.map((r) => r.serialize()).filter(Boolean);
         // shortcut: per-region results (textarea/choices) are copied to every piece unchanged
         const results = pieces.flatMap((piece, k) =>
