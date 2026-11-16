@@ -7,7 +7,7 @@ import { Button, type ButtonProps } from "../../../common/Button/Button";
 import { Block, Elem } from "../../../utils/bem";
 import { NodeIcon } from "../../Node/Node";
 import { LockButton } from "../Components/LockButton";
-import { RegionLabels } from "./RegionLabels";
+import { RegionLabelPicker, RegionLabels } from "./RegionLabels";
 
 interface RegionItemProps {
   region: any;
@@ -52,6 +52,7 @@ export const RegionItem: FC<RegionItemProps> = observer(
           </Elem>
           {withIds && <span>{region.cleanId}</span>}
         </Elem>
+        {withActions && !region.isReadOnly() && !annotation.isReadOnly() && <RegionLabelPicker region={region} />}
         {MainDetails && (
           <Elem name="content">
             <MainDetails region={region} />

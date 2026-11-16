@@ -105,3 +105,26 @@
         display inline-block
         content attr(data-counter)
         opacity 0.6
+
+.label-picker
+  display flex
+  flex-wrap wrap
+  gap 4px
+  padding 0 8px 8px
+
+  &__option
+    padding 2px 10px
+    border 1px solid
+    border-radius 12px
+    background none
+    color inherit
+    font-size 12px
+    line-height 20px
+    cursor pointer
+
+    &:focus-visible
+      outline 2px solid #1890ff
+      outline-offset 1px
+
+  &__option_current
+    font-weight 600
