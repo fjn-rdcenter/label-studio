@@ -7,9 +7,9 @@ import ToolMixin from "../mixins/Tool";
 import { Tool } from "../components/Toolbar/Tool";
 import InfoModal from "../components/Infomodal/Infomodal";
 import { IconSplitTool } from "../assets/icons";
-import { pointInPolygon, snapToBoundary, splitPolygon } from "../utils/polygonOps";
+import { cutPolygon, snapPoint, withGeometry } from "../utils/polygonOps";
 
-// how close (screen px) a click must be to the outline to start or end the cut
+// how close (screen px) a click must be to snap to the polygon or to close the drawn area
 const SNAP_PX = 8;
 
 const ToolView = observer(({ item }) => (
@@ -44,10 +44,8 @@ const _Tool = types
     get splitTarget() {
       const r = self.annotation?.highlightedNode;
 
-      // shortcut: polygons with a hole (ring) can't be cut, extend splitPolygon to the hole if needed
       return r?.type === "polygonregion" &&
         r.closed &&
-        !r.holes.length &&
         !r.isReadOnly() &&
         r.parent?.name === self.obj?.name &&
         r.results.some((res) => res.from_name === self.control)
@@ -56,12 +54,14 @@ const _Tool = types
     },
   }))
   .actions((self) => {
-    // one cut in progress: target region, its outline in canvas coords, start snap, interior points
+    // the area being drawn: target region, its contours in canvas coords, clicked points
     let cut = null;
     let layer = null;
     let line = null;
+    let start = null;
 
     const tolerance = () => SNAP_PX / (self.obj?.zoomScale || 1);
+    const near = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 <= tolerance() ** 2;
 
     return {
       // clicks on the outline and vertices must reach the tool instead of editing the polygon
@@ -76,8 +76,7 @@ const _Tool = types
       cancel() {
         cut = null;
         layer?.destroy();
-        layer = null;
-        line = null;
+        layer = line = start = null;
       },
 
       drawPreview(cursor) {
@@ -85,16 +84,22 @@ const _Tool = types
 
         if (!cut || !stage) return;
         if (!layer) {
+          const r = 4 / (self.obj.zoomScale || 1);
+
           layer = new Konva.Layer({ listening: false });
           line = new Konva.Line({ stroke: "#ff4d4f", strokeWidth: 2, dash: [6, 4], strokeScaleEnabled: false });
-          layer.add(line);
+          // first point: click it again to close the area
+          start = new Konva.Circle({ radius: r, fill: "#ff4d4f", x: cut.points[0][0], y: cut.points[0][1] });
+          layer.add(line, start);
           stage.add(layer);
         }
-        line.points([cut.startPoint, ...cut.points, ...(cursor ? [cursor] : [])].flat());
+        const pts = [...cut.points, ...(cursor ? [cursor] : [])];
+
+        line.points((pts.length > 2 ? [...pts, cut.points[0]] : pts).flat());
         layer.batchDraw();
       },
 
-      // selection changed under us (Escape, click elsewhere): drop the cut
+      // selection changed under us (Escape, click elsewhere): drop the area
       targetLost() {
         if (cut && self.annotation.highlightedNode !== cut.region) self.cancel();
         return !cut;
@@ -112,27 +117,23 @@ const _Tool = types
           const region = self.splitTarget;
 
           if (!region) return;
-          const ring = region.points.map((p) => [p.canvasX, p.canvasY]);
-          const start = snapToBoundary(ring, pt, tolerance());
+          const toCanvas = (points) => points.map((p) => [p.canvasX, p.canvasY]);
+          const polygon = { points: toCanvas(region.points), holes: toCanvas(region.holes) };
+          const rings = [polygon.points, polygon.holes].filter((r) => r.length);
 
-          if (!start) return;
-          cut = { region, ring, start, startPoint: start.point ?? ring[start.index], points: [] };
+          cut = { region, polygon, rings, points: [snapPoint(rings, pt, tolerance()) ?? pt] };
           self.drawPreview(pt);
           return;
         }
 
-        const end = snapToBoundary(cut.ring, pt, tolerance());
-
-        if (end) return self.finish(end);
-        if (pointInPolygon(pt, cut.ring)) {
-          cut.points.push(pt);
-          self.drawPreview(pt);
-        }
+        if (cut.points.length > 2 && near(pt, cut.points[0])) return self.finish();
+        cut.points.push(snapPoint(cut.rings, pt, tolerance()) ?? pt);
+        self.drawPreview(pt);
       },
 
-      finish(end) {
-        const { region, ring, start, points } = cut;
-        const res = splitPolygon(ring, start, end, points);
+      finish() {
+        const { region, polygon, points } = cut;
+        const res = cutPolygon(polygon, points);
 
         self.cancel();
         if (res.error) {
@@ -141,11 +142,16 @@ const _Tool = types
         }
 
         // canvas coords -> percent, as PolygonRegion.serialize does
-        const toPerc = ([x, y]) => [region.convertXToPerc(x), region.convertYToPerc(y)];
+        const toPerc = (ring) => ring.map(([x, y]) => [region.convertXToPerc(x), region.convertYToPerc(y)]);
+        // new pieces first so the first created region is the cut-out one
+        const pieces = [...res.inside, ...res.outside].map((p) => ({
+          points: toPerc(p.points),
+          holes: toPerc(p.holes),
+        }));
         const serialized = region.results.map((r) => r.serialize()).filter(Boolean);
-        // shortcut: per-region results (textarea/choices) are copied to both pieces unchanged
-        const results = res.pieces.flatMap((piece, k) =>
-          serialized.map((r) => ({ ...r, id: `${r.id}-${k}`, value: { ...r.value, points: piece.map(toPerc) } })),
+        // shortcut: per-region results (textarea/choices) are copied to every piece unchanged
+        const results = pieces.flatMap((piece, k) =>
+          serialized.map((r) => ({ ...r, id: `${r.id}-${k}`, value: withGeometry(r.value, piece) })),
         );
         const { annotation } = self;
 
@@ -155,7 +161,7 @@ const _Tool = types
         // appendResults bails on read-only annotations; never delete the original then
         if (created?.length) region.deleteRegion();
         annotation.history.unfreeze("polygon-split");
-        // select the first piece so its label can be changed right away
+        // select the new polygon so its label can be changed right away
         if (created?.length) annotation.selectAreas([created[0]]);
       },
     };

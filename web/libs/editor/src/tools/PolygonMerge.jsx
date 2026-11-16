@@ -6,7 +6,7 @@ import ToolMixin from "../mixins/Tool";
 import { Tool } from "../components/Toolbar/Tool";
 import InfoModal from "../components/Infomodal/Infomodal";
 import { IconMergeTool } from "../assets/icons";
-import { mergePolygons } from "../utils/polygonOps";
+import { mergePolygons, withGeometry } from "../utils/polygonOps";
 
 const labelKeys = (value) => Object.keys(value).filter((k) => k.endsWith("labels"));
 
@@ -80,10 +80,8 @@ const _Tool = types
       const results = serialized[0]
         .filter((res) => res.type === "polygon" || res.type.endsWith("labels"))
         .map((res) => {
-          const { ring, outerclosed, holes, ...value } = res.value;
+          const value = withGeometry(res.value, merged);
 
-          value.points = merged.points;
-          if (merged.holes.length) Object.assign(value, { ring: true, outerclosed: true, holes: [merged.holes] });
           // different labels: leave the merged region unlabeled so the user picks a label for it
           if (!sameLabels) labelKeys(value).forEach((k) => (value[k] = []));
           return { ...res, value };
