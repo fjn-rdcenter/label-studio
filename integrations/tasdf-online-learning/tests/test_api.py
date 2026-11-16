@@ -202,6 +202,36 @@ def ls_svc(settings, monkeypatch):
     return svc
 
 
+def test_counts_labels_without_training(ls_svc, monkeypatch):
+    ls_svc.fake_tasks["list"] = _ls_tasks(range(1, 13)) + _ls_tasks(range(13, 16), quality=1)  # 3 not reviewed
+    fetched = []
+    monkeypatch.setattr(app_module, "fetch_image",
+                        lambda url, tok, src, timeout=30: (fetched.append(src), (_img(src), 256, 256))[1])
+    p = ls_svc.count_pending()
+    n_val = sum(trainer.image_split(_img(f"/data/{t}.png")) == "val" for t in range(1, 13))
+    assert (p["new"], p["train"], p["val"], p["unreviewed"]) == (12, 12 - n_val, n_val, 3) and p["at"]
+    assert ls_svc.telemetry["pending"] == p and len(fetched) == 12
+    assert ls_svc.count_pending()["train"] == 12 - n_val and len(fetched) == 12  # each image is split once
+    assert set(ls_svc.registry.data["bundles"]) == {BASE}  # counting never trains
+    ls_svc.run_job(force=True, job_id="c1")
+    assert ls_svc.telemetry["pending"]["new"] == 0 and ls_svc.count_pending()["new"] == 0
+
+
+def test_webhook_burst_triggers_one_recount(ls_svc, monkeypatch):
+    ls_svc.pending_delay = 0.05
+    counts = []
+    monkeypatch.setattr(ls_svc, "count_pending", lambda stage=None: counts.append(stage))
+    for _ in range(3):
+        assert ls_svc.on_webhook({"action": "ANNOTATION_UPDATED", "project": {"id": 7}}) == "counted"
+    ls_svc._pending_timer.join(2)
+    assert counts == [None]
+
+
+def test_pending_refresh_needs_the_ops_token(client):
+    assert client.post("/pending/refresh").status_code == 401
+    assert client.post("/pending/refresh", headers=AUTH).get_json() == {"skipped": "LS_URL/LS_TOKEN not set"}
+
+
 def test_job_saves_a_bundle_and_gates_it(ls_svc):
     rec = ls_svc.run_job(force=True, job_id="t1")
     assert "last_error" not in ls_svc.telemetry, ls_svc.telemetry.get("last_error")

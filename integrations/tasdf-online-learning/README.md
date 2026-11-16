@@ -36,7 +36,7 @@ ${TASDF_DATA_DIR}/                     (= .data/tasdf-online trên host, /data/t
 
 ```
 LS mở task ──/predict (project → stage)──> backbone production + adapter của stage ──> polygon (<bundle>.<stage>)
-LS lưu annotation ──/webhook──> chỉ đếm nhãn mới
+LS lưu annotation ──/webhook──> khoảng 5 giây sau, đếm lại nhãn (không học)
 lịch TRAIN_CRON (mặc định CN 01:00, TZ) hoặc POST /train ──> job dài hạn (1 job một lúc, hoãn nếu thiếu RAM/VRAM)
   → đọc lại mọi annotation đã duyệt từ LS; nhãn 256: ngoài ZP = nền, trong ZP không vẽ = ignore
   → chia train/val theo hash nội dung ảnh (~20% val, không bao giờ học); cần ≥ TRAIN_MIN_NEW nhãn mới
@@ -49,6 +49,8 @@ lịch TRAIN_CRON (mặc định CN 01:00, TZ) hoặc POST /train ──> job d�
           · không quên trên D10/valid (so production và baseline) · encoder không đổi
   → đạt: production ← bundle mới, previous ← cũ, PATCH model_version của mọi project trong stage
 ```
+
+Dashboard hiện số nhãn mới so với job trước, số ảnh train/val và số annotation **chờ duyệt**. Chỉ annotation đã được Reviewer/Manager duyệt (`MIN_QUALITY_LEVEL=2`) mới được học. Số này được đếm lại sau mỗi webhook, khi backend khởi động, và khi bấm **Refresh counts** (`POST /pending/refresh`). Đếm lại không tải lại ảnh đã chia train/val.
 
 Số đo trên RTX 3060 Laptop (6 GB): **49 ms/ảnh/epoch** khi học nặng, VRAM đỉnh **2,4 GB**. 1000 ảnh × 60 epoch mất khoảng 50 phút. Chạy thử 1 epoch trên dữ liệu thật: `POST /train {"force": true, "dry_run": true}`.
 

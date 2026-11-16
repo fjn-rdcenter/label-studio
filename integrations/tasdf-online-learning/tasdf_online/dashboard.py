@@ -32,6 +32,7 @@ table{width:100%;border-collapse:collapse} th,td{padding:4px 6px;border-bottom:1
   <button onclick="saveTok()">Connect</button>
   <button onclick="act('/train',{force:true})">Train now</button>
   <button onclick="act('/train',{force:true,dry_run:true})">Dry run (1 epoch)</button>
+  <button onclick="act('/pending/refresh',{})">Refresh counts</button>
   <button onclick="act('/refresh_ls_predictions',{})">Refresh LS</button>
   <button class="warn" onclick="act('/rollback',{})">Rollback to previous</button>
   <button onclick="toggleCapture()">Toggle Capture</button>
@@ -60,7 +61,8 @@ async function poll(){
   const d=await r.json(); capOn=d.dashboard_enabled!==false;
   const p=d.pending||{}, sc=d.schedule||{}, dr=d.last_dry_run;
   st.textContent=`production=${d.production} | previous=${d.previous} | ${d.device} | ${d.status} | training=${d.training} | `+
-    `next run ${sc.next_run||'off'} (${sc.cron||'-'}) | new labels ${p.new??'?'}/${p.threshold??'?'} (train ${p.train??'?'}, val ${p.val??'?'})`+
+    `next run ${sc.next_run||'off'} (${sc.cron||'-'}) | new labels ${p.new??'?'}/${p.threshold??'?'} (train ${p.train??'?'}, val ${p.val??'?'}, ${p.unreviewed??'?'} awaiting review`+
+    (p.at?`, counted ${new Date(p.at*1000).toLocaleTimeString()}`:'')+')'+(p.error?` | count failed: ${p.error}`:'')+
     (dr?` | dry run: ${dr.ms_per_image} ms/img, ${n(dr.peak_vram_mib,0)} MiB`:'')+(d.last_skip?` | postponed: ${d.last_skip.reason}`:'');
   st.className='pill ok';
   if(d.last_error) st.textContent+=` | last_error: ${d.last_error}`;

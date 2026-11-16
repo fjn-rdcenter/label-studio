@@ -120,6 +120,10 @@ class OnlineService:
         self.lock = threading.RLock()
         self.train_lock = threading.Lock()
         self.refresh_lock = threading.Lock()
+        self.pending_lock = threading.Lock()
+        self.pending_delay = 5.0  # seconds after a webhook burst before labels are counted again
+        self._pending_timer: threading.Timer | None = None
+        self._split_cache: dict[tuple, str] = {}  # (project, task, image) -> "train" | "val": fetch each image once
         self.dashboard_enabled: bool = s.dashboard_enabled
         self.telemetry: dict = {"status": "idle", "jobs": [], "webhook_events": 0}
         self.cron = Cron(s.train_cron) if s.train_cron.strip() else None  # bad expression: fail at startup
@@ -211,7 +215,56 @@ class OnlineService:
         if self.stage_for((payload.get("project") or {}).get("id")) is None:
             return "ignored-project"
         self.telemetry["webhook_events"] += 1
+        self.schedule_pending_count()
         return "counted"
+
+    def schedule_pending_count(self) -> None:
+        """Count labels again shortly after a burst of webhooks: one count per burst, never two at once."""
+        if self._pending_timer is not None and self._pending_timer.is_alive():
+            return
+        self._pending_timer = threading.Timer(self.pending_delay, self.count_pending)
+        self._pending_timer.daemon = True
+        self._pending_timer.start()
+
+    def _new_labels(self, snapshot: dict) -> int:
+        """Reviewed annotations added or changed since the last training job."""
+        last = self.registry.data.get("last_data_snapshot") or {}
+        return sum(1 for pid, tasks in snapshot.items() for tid, dg in tasks.items()
+                   if (last.get(pid) or {}).get(tid) != dg)
+
+    def count_pending(self, stage: str | None = None) -> dict:
+        """Dashboard counts without training: reviewed samples per side, new since the last job, and annotations
+        still waiting for review (below MIN_QUALITY_LEVEL). Only images never split before are fetched."""
+        stage = stage or list(self.stages)[0]
+        if not (self.s.ls_url and self.s.ls_token):
+            return {"skipped": "LS_URL/LS_TOKEN not set"}
+        if not self.pending_lock.acquire(blocking=False):
+            return {"skipped": "a count is already running"}
+        try:
+            counts, snapshot = {"train": 0, "val": 0, "unreviewed": 0}, {}
+            for pid in self.stages[stage]["projects"]:
+                label = self._project_label(pid)
+                tasks = list(self._project_tasks(pid))
+                counts["unreviewed"] += sum(
+                    1 for t in tasks for a in t.get("annotations") or []
+                    if a.get("result") and not a.get("was_cancelled")
+                    and int(a.get("quality_level") or 1) < self.s.min_quality_level)
+                for d in trainer.select_samples(tasks, pid, label[0], self.s.min_quality_level):
+                    key = (pid, d["task_id"], d["task"]["data"][label[2]])
+                    if key not in self._split_cache:
+                        self._split_cache[key] = trainer.image_split(self._image(d["task"], label[2])[0])
+                    counts[self._split_cache[key]] += 1
+                    snapshot.setdefault(str(pid), {})[str(d["task_id"])] = d["digest"]
+            pending = {"stage": stage, "new": self._new_labels(snapshot), **counts,
+                       "threshold": self.s.train_min_new, "at": time.time()}
+        except Exception as exc:  # LS down or a bad image: keep the last counts, say why
+            log.warning("counting labels failed: %s", exc)
+            pending = {**(self.telemetry.get("pending") or {}), "error": f"{type(exc).__name__}: {exc}",
+                       "at": time.time()}
+        finally:
+            self.pending_lock.release()
+        self.telemetry["pending"] = pending
+        return pending
 
     def start_job(self, force: bool, dry_run: bool = False) -> str:
         if not self.train_lock.acquire(blocking=False):
@@ -257,8 +310,8 @@ class OnlineService:
             for d in trainer.select_samples(list(self._project_tasks(pid)), pid, label[0], self.s.min_quality_level):
                 img = self._image(d["task"], label[2])[0]
                 d["x"] = torch.from_numpy(img)[None]
-                d.pop("task")
-                (val if trainer.image_split(img) == "val" else train).append(d)
+                side = self._split_cache[(pid, d["task_id"], d.pop("task")["data"][label[2]])] = trainer.image_split(img)
+                (val if side == "val" else train).append(d)
                 snapshot.setdefault(str(pid), {})[str(d["task_id"])] = d["digest"]
         return train, val, snapshot
 
@@ -274,11 +327,10 @@ class OnlineService:
                 return None
             self.telemetry["status"] = f"job {job_id}: collecting {stage}"
             train, val, snapshot = self.collect(stage)
-            last = self.registry.data.get("last_data_snapshot") or {}
-            new = sum(1 for pid, tasks in snapshot.items() for tid, dg in tasks.items()
-                      if (last.get(pid) or {}).get(tid) != dg)
-            self.telemetry["pending"] = {"stage": stage, "new": new, "train": len(train), "val": len(val),
-                                         "threshold": self.s.train_min_new}
+            new = self._new_labels(snapshot)
+            self.telemetry["pending"] = {**(self.telemetry.get("pending") or {}), "stage": stage, "new": new,
+                                         "train": len(train), "val": len(val), "threshold": self.s.train_min_new,
+                                         "at": time.time()}
             if not train or (not force and new < self.s.train_min_new):
                 return None
             x = torch.stack([d["x"] for d in train])
@@ -356,6 +408,7 @@ class OnlineService:
             if accepted:
                 self._serve(bundle)
             self.registry.set_meta("last_data_snapshot", snapshot)
+            self.telemetry["pending"]["new"] = 0  # this job used them; a label saved meanwhile triggers a recount
             self.registry.set_meta("job_count", job_count)
             trend = (self.registry.data.get("val_trend") or []) + [{
                 "at": t0, "bundle": bundle, "accepted": accepted, "val": record["metrics"][stage]["val"],
@@ -489,6 +542,7 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
         svc = OnlineService(settings)
         # sync LS with the production bundle after every restart (needs LS reachable)
         threading.Thread(target=svc.refresh_ls, daemon=True).start()
+        threading.Thread(target=svc.count_pending, daemon=True, name="tasdf-count").start()
         threading.Thread(target=svc.schedule_loop, daemon=True, name="tasdf-schedule").start()
     app = Flask(__name__)
     app.config["svc"] = svc
@@ -597,6 +651,12 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
         if not ops_allowed():
             return jsonify(error="unauthorized"), 401
         return jsonify(production=svc.rollback(), refresh=svc.refresh_ls())
+
+    @app.post("/pending/refresh")
+    def pending_refresh():
+        if not ops_allowed():
+            return jsonify(error="unauthorized"), 401
+        return jsonify(svc.count_pending())
 
     @app.post("/refresh_ls_predictions")
     def refresh():
