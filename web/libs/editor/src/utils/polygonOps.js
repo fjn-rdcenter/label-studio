@@ -4,19 +4,21 @@ import polygonClipping from "polygon-clipping";
 // A ring is an open array of [x, y] points (last point != first point).
 // A polygon is {points: ring, holes: ring} — PolygonRegion stores at most one hole contour.
 
-const TOO_MANY_HOLES = "Kết quả có nhiều hơn một lỗ, polygon không hỗ trợ.";
-
 const openRing = (ring) => ring.slice(0, -1); // polygon-clipping returns closed rings
 
 const dist2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
 
 const toGeom = ({ points, holes }) => (holes?.length ? [points, holes] : [points]);
 
-// polygon-clipping MultiPolygon -> polygons, or null if one has more than one hole
+// polygon-clipping MultiPolygon -> polygons. PolygonRegion holds one hole, so a piece with
+// several keeps its largest one and the smaller ones (usually gaps between merged pieces) are filled.
 const fromMulti = (multi) =>
-  multi.some((poly) => poly.length > 2)
-    ? null
-    : multi.map(([outer, hole]) => ({ points: openRing(outer), holes: hole ? openRing(hole) : [] }));
+  multi.map(([outer, ...holes]) => {
+    if (!holes.length) return { points: openRing(outer), holes: [] };
+    const hole = holes.reduce((a, b) => (Math.abs(signedArea(b)) > Math.abs(signedArea(a)) ? b : a));
+
+    return { points: openRing(outer), holes: openRing(hole) };
+  });
 
 export const signedArea = (ring) =>
   ring.reduce((sum, p, i) => {
@@ -96,10 +98,7 @@ export function convexHull(points) {
 export function mergePolygons(polygons, tol = 0) {
   const result = polygonClipping.union(...polygons.map(toGeom));
   const merged =
-    result.length === 1 ? fromMulti(result)?.[0] : { points: convexHull(polygons.flatMap((p) => p.points)), holes: [] };
-
-  if (!merged) return { error: TOO_MANY_HOLES };
-
+    result.length === 1 ? fromMulti(result)[0] : { points: convexHull(polygons.flatMap((p) => p.points)), holes: [] };
   const areas = polygons.map(polyArea);
   const bigIndex = areas.indexOf(Math.max(...areas));
   const big = polygons[bigIndex];
@@ -122,7 +121,6 @@ export function cutPolygon(polygon, area) {
   const inside = fromMulti(polygonClipping.intersection(geom, [area]));
   const outside = fromMulti(polygonClipping.difference(geom, [area]));
 
-  if (!inside || !outside) return { error: TOO_MANY_HOLES };
   if (!inside.length) return { error: "Vùng cắt không giao với polygon." };
   if (!outside.length) return { error: "Vùng cắt phủ hết polygon, không còn gì để tách." };
   return { inside, outside };
@@ -146,7 +144,6 @@ export function carvePolygons(polygons) {
 
   const pieces = fromMulti(polygonClipping.difference(outer, ...others));
 
-  if (!pieces) return { error: TOO_MANY_HOLES };
   if (!pieces.length) return { error: "Polygon lớn bị khoét hết." };
   return { outerIndex, pieces };
 }

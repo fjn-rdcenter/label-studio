@@ -84,7 +84,7 @@ describe("mergePolygons", () => {
     expect(area(res.holes)).toBeCloseTo(1.5);
   });
 
-  it("refuses results with more than one hole", () => {
+  it("keeps one hole when the result has several", () => {
     const comb = [
       [0, 0],
       [5, 0],
@@ -99,20 +99,54 @@ describe("mergePolygons", () => {
       [1, 3],
       [0, 3],
     ];
+    const res = mergePolygons([
+      { points: comb },
+      {
+        points: [
+          [0, 2.5],
+          [5, 2.5],
+          [5, 3.5],
+          [0, 3.5],
+        ],
+      },
+    ]);
 
-    expect(
-      mergePolygons([
-        { points: comb },
-        {
-          points: [
-            [0, 2.5],
-            [5, 2.5],
-            [5, 3.5],
-            [0, 3.5],
-          ],
-        },
-      ]).error,
-    ).toBeTruthy();
+    expect(res.error).toBeUndefined();
+    expect(area(res.holes)).toBeCloseTo(1.5);
+    // outer 5 x 3.5, one 1 x 1.5 notch left open, the other filled
+    expect(area(res.points) - area(res.holes)).toBeCloseTo(16);
+  });
+
+  it("keeps the largest hole and fills the smaller ones", () => {
+    // notches 1 and 2 wide, closed by a bar: holes of 1.5 and 3
+    const comb = [
+      [0, 0],
+      [6, 0],
+      [6, 3],
+      [5, 3],
+      [5, 1],
+      [3, 1],
+      [3, 3],
+      [2, 3],
+      [2, 1],
+      [1, 1],
+      [1, 3],
+      [0, 3],
+    ];
+    const res = mergePolygons([
+      { points: comb },
+      {
+        points: [
+          [0, 2.5],
+          [6, 2.5],
+          [6, 3.5],
+          [0, 3.5],
+        ],
+      },
+    ]);
+
+    expect(area(res.holes)).toBeCloseTo(3);
+    expect(area(res.points) - area(res.holes)).toBeCloseTo(21 - 3);
   });
 });
 
@@ -217,19 +251,24 @@ describe("carvePolygons", () => {
     expect(res.pieces.reduce((a, p) => a + net(p), 0)).toBeCloseTo(80);
   });
 
-  it("refuses polygons that don't overlap and results with two holes", () => {
+  it("refuses polygons that don't overlap", () => {
     expect(
       carvePolygons([
         { points: square(0, 0, 2), holes: [] },
         { points: square(5, 5, 1), holes: [] },
       ]).error,
     ).toBeTruthy();
-    expect(
-      carvePolygons([
-        { points: square(0, 0, 10), holes: square(1, 1, 2) },
-        { points: square(6, 6, 2), holes: [] },
-      ]).error,
-    ).toBeTruthy();
+  });
+
+  it("keeps the largest hole when carving adds a second one", () => {
+    const res = carvePolygons([
+      { points: square(0, 0, 10), holes: square(1, 1, 2) },
+      { points: square(6, 6, 3), holes: [] },
+    ]);
+
+    expect(res.error).toBeUndefined();
+    expect(area(res.pieces[0].holes)).toBeCloseTo(9);
+    expect(net(res.pieces[0])).toBeCloseTo(91);
   });
 });
 
@@ -382,10 +421,13 @@ describe("cutPolygon", () => {
     expect(cutPolygon(sq, square(-1, -1, 12)).error).toBeTruthy();
   });
 
-  it("refuses results with two holes", () => {
+  it("keeps the largest hole when the cut leaves two", () => {
     const withHole = { points: square(0, 0, 10), holes: square(1, 1, 2) };
+    const res = cutPolygon(withHole, square(6, 6, 3));
 
-    expect(cutPolygon(withHole, square(6, 6, 2)).error).toBeTruthy();
+    expect(res.error).toBeUndefined();
+    expect(area(res.inside[0].points)).toBeCloseTo(9);
+    expect(area(res.outside[0].holes)).toBeCloseTo(9);
   });
 });
 
