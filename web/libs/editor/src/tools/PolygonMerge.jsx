@@ -8,6 +8,9 @@ import InfoModal from "../components/Infomodal/Infomodal";
 import { IconMergeTool } from "../assets/icons";
 import { mergePolygons, withGeometry } from "../utils/polygonOps";
 
+// vertices of a smaller polygon within this many screen px of the largest one are dropped
+const BLEND_PX = 8;
+
 const labelKeys = (value) => Object.keys(value).filter((k) => k.endsWith("labels"));
 
 // One string per region describing all its labels, to tell whether merged regions agree
@@ -66,8 +69,11 @@ const _Tool = types
       const serialized = regions.map((r) => r.results.map((res) => res.serialize()).filter(Boolean));
 
       if (serialized.some((results) => !results.length)) return;
+      // canvas coords, so the blend tolerance is in screen px
+      const toCanvas = (points) => points.map((p) => [p.canvasX, p.canvasY]);
       const merged = mergePolygons(
-        serialized.map(([res]) => ({ points: res.value.points, holes: res.value.holes?.[0] })),
+        regions.map((r) => ({ points: toCanvas(r.points), holes: toCanvas(r.holes) })),
+        BLEND_PX / (self.obj?.zoomScale || 1),
       );
 
       if (merged.error) {
@@ -75,15 +81,19 @@ const _Tool = types
         return;
       }
 
-      const sameLabels = new Set(serialized.map(labelSignature)).size === 1;
+      const { bigIndex, absorbed } = merged;
+      const region = regions[bigIndex];
+      const toPerc = (ring) => ring.map(([x, y]) => [region.convertXToPerc(x), region.convertYToPerc(y)]);
+      const geometry = { points: toPerc(merged.points), holes: toPerc(merged.holes) };
+      // labels differ and small polygons don't sit inside the big one: let the user pick a label
+      const resetLabels = !absorbed && new Set(serialized.map(labelSignature)).size > 1;
       // shortcut: per-region results (textarea/choices) are dropped, carry them over if a project needs them
-      const results = serialized[0]
+      const results = serialized[bigIndex]
         .filter((res) => res.type === "polygon" || res.type.endsWith("labels"))
         .map((res) => {
-          const value = withGeometry(res.value, merged);
+          const value = withGeometry(res.value, geometry);
 
-          // different labels: leave the merged region unlabeled so the user picks a label for it
-          if (!sameLabels) labelKeys(value).forEach((k) => (value[k] = []));
+          if (resetLabels) labelKeys(value).forEach((k) => (value[k] = []));
           return { ...res, value };
         });
 

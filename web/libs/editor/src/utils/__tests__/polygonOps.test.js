@@ -92,6 +92,63 @@ describe("mergePolygons", () => {
   });
 });
 
+describe("mergePolygons absorbing a small polygon", () => {
+  const big = { points: square(0, 0, 10), holes: [] };
+  // small polygon along the right edge, mostly inside, sticking out by 1
+  const hugging = {
+    points: [
+      [8, 3],
+      [11, 3],
+      [11, 7],
+      [8, 7],
+    ],
+    holes: [],
+  };
+  // small polygon sticking out by 10
+  const bump = {
+    points: [
+      [8, 3],
+      [20, 3],
+      [20, 7],
+      [8, 7],
+    ],
+    holes: [],
+  };
+
+  it("drops the small polygon's vertices near the big outline", () => {
+    const res = mergePolygons([hugging, big], 2);
+
+    expect(res.points).toHaveLength(4);
+    expect(area(res.points)).toBeCloseTo(100);
+  });
+
+  it("keeps a clear protrusion", () => {
+    const res = mergePolygons([big, bump], 2);
+
+    expect(area(res.points)).toBeCloseTo(100 + 10 * 4);
+    expect(res.points).toEqual(
+      expect.arrayContaining([
+        [20, 3],
+        [20, 7],
+      ]),
+    );
+  });
+
+  it("keeps the union as is without a tolerance", () => {
+    expect(mergePolygons([hugging, big]).points).toHaveLength(8);
+  });
+
+  it("reports the largest polygon even when it is not first", () => {
+    expect(mergePolygons([hugging, big], 2).bigIndex).toBe(1);
+  });
+
+  it("flags absorbed when the small polygon lies mostly inside", () => {
+    expect(mergePolygons([big, hugging]).absorbed).toBe(true);
+    // corner overlap only: 1 of 16
+    expect(mergePolygons([big, { points: square(9, 9, 4), holes: [] }]).absorbed).toBe(false);
+  });
+});
+
 describe("snapToContour", () => {
   const ring = square(0, 0, 10);
   const hole = square(4, 4, 2);

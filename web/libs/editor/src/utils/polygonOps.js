@@ -25,17 +25,74 @@ export const signedArea = (ring) =>
     return sum + p[0] * q[1] - q[0] * p[1];
   }, 0) / 2;
 
+const polyArea = ({ points, holes }) =>
+  Math.abs(signedArea(points)) - (holes?.length ? Math.abs(signedArea(holes)) : 0);
+
+const multiArea = (multi) =>
+  multi.reduce(
+    (sum, [outer, ...holes]) =>
+      sum + Math.abs(signedArea(outer)) - holes.reduce((h, r) => h + Math.abs(signedArea(r)), 0),
+    0,
+  );
+
+const distToSegment = (p, a, b) => {
+  const len2 = dist2(a, b);
+  const t = len2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / len2)) : 0;
+
+  return Math.sqrt(dist2(p, [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]));
+};
+
+const distToRing = (p, ring) => Math.min(...ring.map((a, i) => distToSegment(p, a, ring[(i + 1) % ring.length])));
+
+// Drop vertices that don't belong to `big` and sit within tol of its contours, as long as
+// removing them moves the outline by at most tol, so a small polygon blends into the big one.
+function absorbVertices(ring, big, tol) {
+  const own = new Set(big.points.concat(big.holes ?? []).map((p) => p.join()));
+  const contours = [big.points, big.holes].filter((r) => r?.length);
+  const out = [...ring];
+
+  for (let removed = true; removed && out.length > 3; ) {
+    removed = false;
+    for (let i = 0; i < out.length && out.length > 3; i++) {
+      const v = out[i];
+      const prev = out[(i + out.length - 1) % out.length];
+      const next = out[(i + 1) % out.length];
+
+      if (own.has(v.join())) continue;
+      if (Math.min(...contours.map((r) => distToRing(v, r))) > tol || distToSegment(v, prev, next) > tol) continue;
+      out.splice(i--, 1);
+      removed = true;
+    }
+  }
+  return out;
+}
+
 /**
  * Union polygons that touch or overlap into one.
  * @param {{points: number[][], holes?: number[][]}[]} polygons
- * @returns {{points: number[][], holes: number[][]} | {error: string}}
+ * @param {number} tol with tol > 0, vertices of the smaller polygons lying within tol of the
+ *   largest one are dropped so they blend into it (hole contour of the result is left as is)
+ * @returns {{points: number[][], holes: number[][], bigIndex: number, absorbed: boolean} | {error: string}}
+ *   bigIndex: the largest polygon; absorbed: every other one lies at least half inside it
  */
-export function mergePolygons(polygons) {
+export function mergePolygons(polygons, tol = 0) {
   const result = polygonClipping.union(...polygons.map(toGeom));
 
   if (result.length !== 1) return { error: "Các polygon phải chạm hoặc chồng lên nhau mới gộp được." };
 
-  return fromMulti(result)?.[0] ?? { error: TOO_MANY_HOLES };
+  const merged = fromMulti(result)?.[0];
+
+  if (!merged) return { error: TOO_MANY_HOLES };
+
+  const areas = polygons.map(polyArea);
+  const bigIndex = areas.indexOf(Math.max(...areas));
+  const big = polygons[bigIndex];
+  const absorbed = polygons.every(
+    (p, i) => i === bigIndex || multiArea(polygonClipping.intersection(toGeom(p), toGeom(big))) >= areas[i] / 2,
+  );
+  const points = tol > 0 ? absorbVertices(merged.points, big, tol) : merged.points;
+
+  return { ...merged, points, bigIndex, absorbed };
 }
 
 /**
