@@ -67,8 +67,26 @@ function absorbVertices(ring, big, tol) {
   return out;
 }
 
+const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+
+// Convex hull (Andrew's monotone chain), counter-clockwise, no collinear points
+export function convexHull(points) {
+  const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const half = (list) =>
+    list.reduce((h, p) => {
+      while (h.length > 1 && cross(h[h.length - 2], h[h.length - 1], p) <= 0) h.pop();
+      h.push(p);
+      return h;
+    }, []);
+  const lower = half(pts);
+  const upper = half([...pts].reverse());
+
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+}
+
 /**
- * Union polygons that touch or overlap into one.
+ * Union polygons into one. Polygons that touch or overlap are unioned; if they end up in
+ * separate pieces, the result is the convex hull of all of them (one big shape, no hole).
  * @param {{points: number[][], holes?: number[][]}[]} polygons
  * @param {number} tol with tol > 0, vertices of the smaller polygons lying within tol of the
  *   largest one are dropped so they blend into it (hole contour of the result is left as is)
@@ -77,10 +95,8 @@ function absorbVertices(ring, big, tol) {
  */
 export function mergePolygons(polygons, tol = 0) {
   const result = polygonClipping.union(...polygons.map(toGeom));
-
-  if (result.length !== 1) return { error: "Các polygon phải chạm hoặc chồng lên nhau mới gộp được." };
-
-  const merged = fromMulti(result)?.[0];
+  const merged =
+    result.length === 1 ? fromMulti(result)?.[0] : { points: convexHull(polygons.flatMap((p) => p.points)), holes: [] };
 
   if (!merged) return { error: TOO_MANY_HOLES };
 

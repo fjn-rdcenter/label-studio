@@ -1,5 +1,6 @@
 import {
   carvePolygons,
+  convexHull,
   cutAlongLine,
   cutPolygon,
   mergePolygons,
@@ -37,8 +38,21 @@ describe("mergePolygons", () => {
     expect(area(res.points)).toBeCloseTo(2);
   });
 
-  it("refuses disjoint polygons", () => {
-    expect(mergePolygons([{ points: square(0, 0, 1) }, { points: square(5, 5, 1) }]).error).toBeTruthy();
+  it("joins disjoint polygons into their convex hull", () => {
+    const res = mergePolygons([{ points: square(0, 0, 1) }, { points: square(5, 5, 1) }], 0.1);
+
+    expect(res.error).toBeUndefined();
+    expect(res.points).toHaveLength(6);
+    expect(area(res.points)).toBeCloseTo(11);
+    expect(res.holes).toEqual([]);
+    expect(res.absorbed).toBe(false);
+  });
+
+  it("convexHull drops interior and collinear points", () => {
+    const hull = convexHull([...square(0, 0, 4), [2, 2], [2, 0], [1, 3]]);
+
+    expect(hull).toHaveLength(4);
+    expect(area(hull)).toBeCloseTo(16);
   });
 
   it("keeps a single enclosed hole as a ring", () => {
