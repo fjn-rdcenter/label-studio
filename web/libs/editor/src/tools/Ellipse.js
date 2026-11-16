@@ -10,7 +10,6 @@ const _Tool = types
     group: "segmentation",
     shortcut: "O",
   })
-  .volatile(() => ({ shapeTool: true }))
   .views((self) => {
     const Super = {
       createRegionOptions: self.createRegionOptions,

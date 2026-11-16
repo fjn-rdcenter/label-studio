@@ -7,12 +7,6 @@ import { ToolbarContext } from "./ToolbarContext";
 
 const hotkeys = Hotkey("SegmentationToolbar", "Segmentation Tools");
 
-// Switching to a drawing tool drops the selected regions together with the labels they show:
-// those labels belong to the old regions and must not label the next shape.
-const releaseSelection = (tool) => {
-  if (tool?.unselectRegionOnToolChange && tool.annotation?.hasSelection) tool.annotation.unselectAll();
-};
-
 const keysDictionary = {
   plus: "+",
   minus: "-",
@@ -78,7 +72,9 @@ export const Tool = ({
         shortcut,
         () => {
           if (!tool?.disabled && !tool?.annotation?.isDrawing) {
-            releaseSelection(tool);
+            if (tool?.unselectRegionOnToolChange) {
+              tool.annotation.unselectAreas();
+            }
             onClick?.();
           }
         },
@@ -134,7 +130,9 @@ export const Tool = ({
       onClick={(e) => {
         if (!disabled && !isAnnotationDrawing) {
           e.preventDefault();
-          releaseSelection(tool);
+          if (tool?.unselectRegionOnToolChange) {
+            tool?.annotation?.unselectAreas?.();
+          }
           onClick?.(e);
         }
       }}

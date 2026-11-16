@@ -13,7 +13,6 @@ const _BaseNPointTool = types
     smart: true,
     shortcut: "R",
   })
-  .volatile(() => ({ shapeTool: true }))
   .views((self) => {
     const Super = {
       createRegionOptions: self.createRegionOptions,

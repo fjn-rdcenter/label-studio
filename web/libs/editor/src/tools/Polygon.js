@@ -9,7 +9,6 @@ import { FF_DEV_2432, isFF } from "../utils/feature-flags";
 
 const _Tool = types
   .model("PolygonToolBase", {})
-  .volatile(() => ({ shapeTool: true }))
   .views((self) => {
     const Super = {
       createRegionOptions: self.createRegionOptions,
@@ -111,7 +110,6 @@ const _Tool = types
         const point = self.control?.getSnappedPoint({ x, y });
 
         if (isFF(FF_DEV_2432)) {
-          self.releaseSelection();
           self.mode = "drawing";
           self.currentArea = self.createRegion(self.createRegionOptions({ x: point.x, y: point.y }), true);
           self.setDrawing(true);
@@ -140,7 +138,6 @@ const _Tool = types
           self.currentArea = null;
           self.mode = "viewing";
           self.annotation.afterCreateResult(currentArea, control);
-          self.switchToMove(currentArea);
         } else {
           Super._finishDrawing();
         }
