@@ -75,6 +75,7 @@ const Model = types
             ...(self.smart ? ["OpenCVPolygon"] : []),
             "PolygonMerge",
             "PolygonSplit",
+            "PolygonSelect",
           ]
         : []),
       ...(self.polygonmode !== "polygon"

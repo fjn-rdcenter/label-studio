@@ -68,6 +68,7 @@ export { ReactComponent as IconMagicWandTool } from "./tools/magic-wand-tool.svg
 export { ReactComponent as IconEraserTool } from "./tools/eraser-tool.svg";
 export { ReactComponent as IconMergeTool } from "./tools/merge-tool.svg";
 export { ReactComponent as IconSplitTool } from "./tools/split-tool.svg";
+export { ReactComponent as IconSelectTool } from "./tools/select-tool.svg";
 export { ReactComponent as IconHandTool } from "./tools/hand-tool.svg";
 export { ReactComponent as IconBrightnessTool } from "./tools/brightness-tool.svg";
 export { ReactComponent as IconContrastTool } from "./tools/contrast-tool.svg";

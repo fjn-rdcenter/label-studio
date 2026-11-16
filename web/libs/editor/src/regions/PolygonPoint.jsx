@@ -97,6 +97,11 @@ const PolygonPointRelativeCoords = types
     },
   }))
   .actions((self) => ({
+    // multi-vertex selection of the Select tool; selected points are drawn green
+    setSelected(selected) {
+      self.selected = selected;
+    },
+
     /**
      * External function for Polygon Parent
      * @param {number} x

@@ -1,9 +1,11 @@
 import {
   carvePolygons,
+  clampDelta,
   convexHull,
   cutAlongLine,
   cutPolygon,
   mergePolygons,
+  pointsInRect,
   signedArea,
   snapToContour,
   withGeometry,
@@ -404,5 +406,37 @@ describe("withGeometry", () => {
       outerclosed: true,
       holes: [[[2, 2]]],
     });
+  });
+});
+
+describe("pointsInRect", () => {
+  const pts = [
+    [0, 0],
+    [5, 5],
+    [10, 10],
+    [5, 12],
+  ];
+
+  it("takes corners in any order and includes the edges", () => {
+    expect(pointsInRect(pts, [10, 10], [5, 0])).toEqual([1, 2]);
+  });
+
+  it("returns nothing for an empty box", () => {
+    expect(pointsInRect(pts, [20, 20], [30, 30])).toEqual([]);
+  });
+});
+
+describe("clampDelta", () => {
+  const pts = [
+    [2, 3],
+    [8, 9],
+  ];
+
+  it("keeps a move that stays inside", () => {
+    expect(clampDelta(pts, 1, -2, 10, 10)).toEqual([1, -2]);
+  });
+
+  it("shrinks a move that would leave the image", () => {
+    expect(clampDelta(pts, 5, -10, 10, 10)).toEqual([2, -3]);
   });
 });

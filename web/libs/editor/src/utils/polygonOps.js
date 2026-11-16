@@ -209,6 +209,25 @@ export function cutAlongLine(polygon, rings, start, end, line = []) {
   return cutPolygon(polygon, area);
 }
 
+// Indexes of the points inside the box spanned by corners a and b (any order, edges included)
+export function pointsInRect(points, a, b) {
+  const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
+  const [y0, y1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
+
+  return points.flatMap(([x, y], i) => (x >= x0 && x <= x1 && y >= y0 && y <= y1 ? [i] : []));
+}
+
+// Shrink a move (dx, dy) so every point stays inside [0, w] x [0, h]
+export function clampDelta(points, dx, dy, w, h) {
+  const xs = points.map((p) => p[0]);
+  const ys = points.map((p) => p[1]);
+
+  return [
+    Math.max(-Math.min(...xs), Math.min(w - Math.max(...xs), dx)),
+    Math.max(-Math.min(...ys), Math.min(h - Math.max(...ys), dy)),
+  ];
+}
+
 // Serialized polygon value with new geometry, as PolygonRegion.serialize writes rings
 export function withGeometry(value, { points, holes }) {
   const { ring, outerclosed, holes: _, ...rest } = value;

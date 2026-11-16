@@ -17,6 +17,7 @@ import { MagicWand } from "./MagicWand";
 import { Selection } from "./Selection";
 import { PolygonMerge } from "./PolygonMerge";
 import { PolygonSplit } from "./PolygonSplit";
+import { PolygonSelect } from "./PolygonSelect";
 
 export {
   Brush,
@@ -38,4 +39,5 @@ export {
   Selection,
   PolygonMerge,
   PolygonSplit,
+  PolygonSelect,
 };
