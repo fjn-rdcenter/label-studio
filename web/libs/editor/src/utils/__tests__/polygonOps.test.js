@@ -1,4 +1,4 @@
-import { cutPolygon, mergePolygons, signedArea, snapPoint, withGeometry } from "../polygonOps";
+import { cutAlongLine, cutPolygon, mergePolygons, signedArea, snapToContour, withGeometry } from "../polygonOps";
 
 const square = (x, y, s) => [
   [x, y],
@@ -92,24 +92,92 @@ describe("mergePolygons", () => {
   });
 });
 
-describe("snapPoint", () => {
+describe("snapToContour", () => {
   const ring = square(0, 0, 10);
   const hole = square(4, 4, 2);
 
   it("prefers a nearby vertex", () => {
-    expect(snapPoint([ring], [0.5, 0.5], 1)).toEqual([0, 0]);
+    expect(snapToContour([ring], [0.5, 0.5], 1)).toEqual({ ring: 0, edge: 0, t: 0, point: [0, 0] });
   });
 
   it("projects onto an edge", () => {
-    expect(snapPoint([ring], [5, 0.5], 1)).toEqual([5, 0]);
+    expect(snapToContour([ring], [5, 0.5], 1)).toEqual({ ring: 0, edge: 0, t: 0.5, point: [5, 0] });
   });
 
   it("snaps to the hole contour too", () => {
-    expect(snapPoint([ring, hole], [4.2, 5], 0.5)).toEqual([4, 5]);
+    expect(snapToContour([ring, hole], [4.2, 5], 0.5)).toMatchObject({ ring: 1, point: [4, 5] });
   });
 
   it("returns null away from every contour", () => {
-    expect(snapPoint([ring, hole], [2, 2], 1)).toBeNull();
+    expect(snapToContour([ring, hole], [2, 2], 1)).toBeNull();
+  });
+});
+
+describe("cutAlongLine", () => {
+  const sq = { points: square(0, 0, 10), holes: [] };
+  const snap = (rings, pt) => snapToContour(rings, pt, 0.5);
+  const total = (res) => [...res.inside, ...res.outside].reduce((a, p) => a + area(p.points) - area(p.holes), 0);
+
+  it("halves a square from the top edge to the bottom edge", () => {
+    const rings = [sq.points];
+    const res = cutAlongLine(sq, rings, snap(rings, [5, 0]), snap(rings, [5, 10]));
+
+    expect(res.error).toBeUndefined();
+    expect([...res.inside, ...res.outside].map((p) => area(p.points))).toEqual([50, 50]);
+  });
+
+  it("cuts vertex to vertex through an interior point", () => {
+    const rings = [sq.points];
+    const res = cutAlongLine(sq, rings, snap(rings, [0, 0]), snap(rings, [10, 10]), [[3, 7]]);
+
+    expect(res.inside).toHaveLength(1);
+    expect(res.outside).toHaveLength(1);
+    expect(total(res)).toBeCloseTo(100);
+  });
+
+  it("cuts a notch when start and end sit on the same edge", () => {
+    const rings = [sq.points];
+    const res = cutAlongLine(sq, rings, snap(rings, [7, 0]), snap(rings, [3, 0]), [[5, 4]]);
+
+    expect(Math.min(...[...res.inside, ...res.outside].map((p) => area(p.points)))).toBeCloseTo(8);
+    expect(total(res)).toBeCloseTo(100);
+  });
+
+  it("halves a ring by crossing through its hole", () => {
+    const ringPoly = { points: square(0, 0, 10), holes: square(3, 3, 4) };
+    const rings = [ringPoly.points, ringPoly.holes];
+    const res = cutAlongLine(ringPoly, rings, snap(rings, [5, 0]), snap(rings, [5, 10]), [
+      [5, 3],
+      [5, 7],
+    ]);
+
+    expect(res.error).toBeUndefined();
+    const pieces = [...res.inside, ...res.outside];
+
+    expect(pieces).toHaveLength(2);
+    pieces.forEach((p) => {
+      expect(p.holes).toEqual([]);
+      expect(area(p.points)).toBeCloseTo(42);
+    });
+  });
+
+  it("keeps the total area when the line leaves a concave polygon", () => {
+    const l = {
+      points: [
+        [0, 0],
+        [10, 0],
+        [10, 4],
+        [4, 4],
+        [4, 10],
+        [0, 10],
+      ],
+      holes: [],
+    };
+    const rings = [l.points];
+    const res = cutAlongLine(l, rings, snap(rings, [10, 2]), snap(rings, [2, 10]), [[8, 8]]);
+
+    expect(res.error).toBeUndefined();
+    expect(total(res)).toBeCloseTo(64);
   });
 });
 

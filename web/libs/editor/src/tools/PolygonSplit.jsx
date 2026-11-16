@@ -7,7 +7,7 @@ import ToolMixin from "../mixins/Tool";
 import { Tool } from "../components/Toolbar/Tool";
 import InfoModal from "../components/Infomodal/Infomodal";
 import { IconSplitTool } from "../assets/icons";
-import { cutPolygon, snapPoint, withGeometry } from "../utils/polygonOps";
+import { cutAlongLine, cutPolygon, snapToContour, withGeometry } from "../utils/polygonOps";
 
 // how close (screen px) a click must be to snap to the polygon or to close the drawn area
 const SNAP_PX = 8;
@@ -95,7 +95,8 @@ const _Tool = types
         }
         const pts = [...cut.points, ...(cursor ? [cursor] : [])];
 
-        line.points((pts.length > 2 ? [...pts, cut.points[0]] : pts).flat());
+        // an open cut line from a contour isn't closed back to its first point
+        line.points((pts.length > 2 && !cut.start ? [...pts, cut.points[0]] : pts).flat());
         layer.batchDraw();
       },
 
@@ -121,19 +122,31 @@ const _Tool = types
           const polygon = { points: toCanvas(region.points), holes: toCanvas(region.holes) };
           const rings = [polygon.points, polygon.holes].filter((r) => r.length);
 
-          cut = { region, polygon, rings, points: [snapPoint(rings, pt, tolerance()) ?? pt] };
+          const start = snapToContour(rings, pt, tolerance());
+
+          // start on a contour: the cut may also end on that contour (open line)
+          cut = { region, polygon, rings, start, points: [start?.point ?? pt] };
           self.drawPreview(pt);
           return;
         }
 
-        if (cut.points.length > 2 && near(pt, cut.points[0])) return self.finish();
-        cut.points.push(snapPoint(cut.rings, pt, tolerance()) ?? pt);
+        if (near(pt, cut.points[0])) {
+          // back on the first point closes the drawn area
+          if (cut.points.length > 2) self.finish();
+          return;
+        }
+
+        const snap = snapToContour(cut.rings, pt, tolerance());
+
+        if (cut.start && snap?.ring === cut.start.ring) return self.finish(snap);
+        cut.points.push(snap?.point ?? pt);
         self.drawPreview(pt);
       },
 
-      finish() {
-        const { region, polygon, points } = cut;
-        const res = cutPolygon(polygon, points);
+      // end: contour snap ending an open cut line; without it the clicked points are a closed area
+      finish(end) {
+        const { region, polygon, rings, start, points } = cut;
+        const res = end ? cutAlongLine(polygon, rings, start, end, points.slice(1)) : cutPolygon(polygon, points);
 
         self.cancel();
         if (res.error) {

@@ -57,31 +57,60 @@ export function cutPolygon(polygon, area) {
 
 /**
  * Snap a point to the nearest vertex (preferred) or edge of the given rings.
- * @returns {number[] | null}
+ * @returns {{ring: number, edge: number, t: number, point: number[]} | null}
+ *   ring index, edge i (from ring[i] to ring[i + 1]) and position t along it
  */
-export function snapPoint(rings, pt, tol) {
+export function snapToContour(rings, pt, tol) {
   const tol2 = tol * tol;
   let vertex = null;
   let edge = null;
 
-  for (const ring of rings) {
+  rings.forEach((ring, k) => {
     ring.forEach((a, i) => {
       const d = dist2(a, pt);
 
-      if (d <= tol2 && (!vertex || d < vertex.d)) vertex = { p: a, d };
+      if (d <= tol2 && (!vertex || d < vertex.d)) vertex = { ring: k, edge: i, t: 0, point: a, d };
 
       const b = ring[(i + 1) % ring.length];
       const len2 = dist2(a, b);
 
       if (!len2) return;
       const t = Math.max(0, Math.min(1, ((pt[0] - a[0]) * (b[0] - a[0]) + (pt[1] - a[1]) * (b[1] - a[1])) / len2));
-      const p = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
-      const e = dist2(p, pt);
+      const point = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
+      const e = dist2(point, pt);
 
-      if (e <= tol2 && (!edge || e < edge.d)) edge = { p, d: e };
+      if (e <= tol2 && (!edge || e < edge.d)) edge = { ring: k, edge: i, t, point, d: e };
     });
+  });
+
+  const best = vertex ?? edge;
+
+  return best && { ring: best.ring, edge: best.edge, t: best.t, point: best.point };
+}
+
+// Vertices met walking forward along the ring from snap a to snap b, ends excluded
+function contourBetween(ring, a, b) {
+  if (a.edge === b.edge && a.t <= b.t) return [];
+  const out = [];
+
+  for (let i = (a.edge + 1) % ring.length; ; i = (i + 1) % ring.length) {
+    if (i === b.edge) return b.t > 0 ? [...out, ring[i]] : out;
+    out.push(ring[i]);
   }
-  return (vertex ?? edge)?.p ?? null;
+}
+
+/**
+ * Cut a polygon along an open line from one contour point to another on the same contour.
+ * The line is closed by walking that contour back from end to start, then cut like a drawn area.
+ * @param {number[][][]} rings contours of the polygon: [outer, hole?]
+ * @param {object} start snap from snapToContour
+ * @param {object} end snap from snapToContour, on the same ring as start
+ * @param {number[][]} line points clicked between start and end
+ */
+export function cutAlongLine(polygon, rings, start, end, line = []) {
+  const area = [start.point, ...line, end.point, ...contourBetween(rings[start.ring], end, start)];
+
+  return cutPolygon(polygon, area);
 }
 
 // Serialized polygon value with new geometry, as PolygonRegion.serialize writes rings
