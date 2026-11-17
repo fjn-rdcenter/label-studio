@@ -11,14 +11,16 @@ const dist2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
 const toGeom = ({ points, holes }) => (holes?.length ? [points, holes] : [points]);
 
 // polygon-clipping MultiPolygon -> polygons. PolygonRegion holds one hole, so a piece with
-// several keeps its largest one and the smaller ones (usually gaps between merged pieces) are filled.
-const fromMulti = (multi) =>
-  multi.map(([outer, ...holes]) => {
+// several keeps its largest one and the smaller ones are filled; filled counts them.
+const fromMulti = (multi) => ({
+  polygons: multi.map(([outer, ...holes]) => {
     if (!holes.length) return { points: openRing(outer), holes: [] };
     const hole = holes.reduce((a, b) => (Math.abs(signedArea(b)) > Math.abs(signedArea(a)) ? b : a));
 
     return { points: openRing(outer), holes: openRing(hole) };
-  });
+  }),
+  filled: multi.reduce((n, [, ...holes]) => n + Math.max(0, holes.length - 1), 0),
+});
 
 export const signedArea = (ring) =>
   ring.reduce((sum, p, i) => {
@@ -206,23 +208,25 @@ export function mergePolygons(polygons, tol = 0, eps = 0) {
  * Cut a drawn closed area out of a polygon.
  * @param {{points: number[][], holes?: number[][]}} polygon
  * @param {number[][]} area ring drawn by the user, may extend outside the polygon
- * @returns {{inside: object[], outside: object[]} | {error: string}} inside = new polygons, outside = what is left
+ * @returns {{inside: object[], outside: object[], filledHoles: number} | {error: string}} inside = new polygons,
+ *   outside = what is left, filledHoles = holes dropped because a polygon keeps only its largest one
  */
 export function cutPolygon(polygon, area) {
   const geom = toGeom(polygon);
   const inside = fromMulti(polygonClipping.intersection(geom, [area]));
   const outside = fromMulti(polygonClipping.difference(geom, [area]));
 
-  if (!inside.length) return { error: "Vùng cắt không giao với polygon." };
-  if (!outside.length) return { error: "Vùng cắt phủ hết polygon, không còn gì để tách." };
-  return { inside, outside };
+  if (!inside.polygons.length) return { error: "Vùng cắt không giao với polygon." };
+  if (!outside.polygons.length) return { error: "Vùng cắt phủ hết polygon, không còn gì để tách." };
+  return { inside: inside.polygons, outside: outside.polygons, filledHoles: inside.filled + outside.filled };
 }
 
 /**
  * Carve the other polygons out of the one with the largest outline (holes counted as covered,
  * so a ring wins over a solid polygon sitting in its hole). The carving polygons stay as they are.
  * @param {{points: number[][], holes?: number[][]}[]} polygons
- * @returns {{outerIndex: number, pieces: object[]} | {error: string}} pieces replace polygons[outerIndex]
+ * @returns {{outerIndex: number, pieces: object[], filledHoles: number} | {error: string}}
+ *   pieces replace polygons[outerIndex]; filledHoles as in cutPolygon
  */
 export function carvePolygons(polygons) {
   const outlines = polygons.map((p) => Math.abs(signedArea(p.points)));
@@ -234,10 +238,10 @@ export function carvePolygons(polygons) {
     return { error: "Các polygon không chồng lên nhau." };
   }
 
-  const pieces = fromMulti(polygonClipping.difference(outer, ...others));
+  const { polygons: pieces, filled } = fromMulti(polygonClipping.difference(outer, ...others));
 
   if (!pieces.length) return { error: "Polygon lớn bị khoét hết." };
-  return { outerIndex, pieces };
+  return { outerIndex, pieces, filledHoles: filled };
 }
 
 /**
