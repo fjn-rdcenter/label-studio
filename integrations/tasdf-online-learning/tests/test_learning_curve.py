@@ -23,6 +23,12 @@ def test_pick_ks_keeps_requested_sizes_that_fit():
     assert learning_curve.pick_ks(10, None) == learning_curve.ks_for(10)
 
 
+def test_drop_tasks_leaves_listed_tasks_out():
+    samples = [{"task_id": t} for t in (1, 2, 3)]
+    assert [d["task_id"] for d in learning_curve.drop_tasks(samples, "2, 3")] == [1]
+    assert learning_curve.drop_tasks(samples, None) == samples
+
+
 def test_run_curve_reports_every_mode_and_reference():
     torch.manual_seed(0)
     base = learner.build_model(base_channels=8).eval()

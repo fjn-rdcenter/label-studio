@@ -53,6 +53,12 @@ def pick_ks(n: int, wanted: str | None) -> list[int]:
     return [k for k in (int(v) for v in wanted.split(",") if v.strip()) if 0 < k <= n]
 
 
+def drop_tasks(samples: list[dict], wanted: str | None) -> list[dict]:
+    """`--exclude-tasks 10221,10228` leaves those LS tasks out (e.g. uncropped whole-dish images)."""
+    skip = {int(t) for t in (wanted or "").split(",") if t.strip()}
+    return [d for d in samples if d["task_id"] not in skip]
+
+
 def dice_per_image(model, xs: torch.Tensor, ys: list[np.ndarray]) -> list[float]:
     from tasdf_online import trainer
 
@@ -216,6 +222,7 @@ def main(argv=None) -> None:
     ap.add_argument("--resume", help="JSONL of an interrupted run: append to it and skip rows it already has")
     ap.add_argument("--fold", type=int, help="leave-one-out only: run this fold and exit without a report")
     ap.add_argument("--ks", help="comma-separated training sizes to measure, e.g. 8,18 (default: 4, 8, 16, ... all)")
+    ap.add_argument("--exclude-tasks", help="comma-separated LS task ids to leave out of the measurement")
     ap.add_argument("--no-d10", action="store_true", help="skip the D10 score of every candidate (saves time)")
     args = ap.parse_args(argv)
 
@@ -238,6 +245,7 @@ def main(argv=None) -> None:
     anchors = _load_npz(s.anchor_npz) if s.anchor_npz and s.anchor_frac > 0 else None  # same as the job (ANCHOR_FRAC)
     projects = [int(p) for p in args.projects.split(",") if p]
     train, val, annotators = collect(s, projects)
+    train, val = drop_tasks(train, args.exclude_tasks), drop_tasks(val, args.exclude_tasks)
     print(f"train {len(train)} / val {len(val)} annotations from projects {projects}", flush=True)
     out = Path(args.reports)
     out.mkdir(parents=True, exist_ok=True)
@@ -270,6 +278,8 @@ def main(argv=None) -> None:
     else:  # too few validation images for a fixed split: leave-one-out over everything reviewed
         pool = train + val
         evaluation = f"leave-one-out CV estimate over {len(pool)} images (fewer than {VAL_MIN} fixed val images)"
+        if args.exclude_tasks:
+            evaluation += f"; tasks {args.exclude_tasks} left out"
         rows = []
         for i, held in enumerate(pool):
             if args.fold is not None and i != args.fold:
