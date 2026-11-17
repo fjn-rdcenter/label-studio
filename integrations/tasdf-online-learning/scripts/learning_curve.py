@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import gc
+import hashlib
 import json
 import os
 import random
@@ -53,10 +54,28 @@ def pick_ks(n: int, wanted: str | None) -> list[int]:
     return [k for k in (int(v) for v in wanted.split(",") if v.strip()) if 0 < k <= n]
 
 
+def task_ids(wanted: str | None) -> list[int]:
+    return sorted({int(t) for t in (wanted or "").split(",") if t.strip()})
+
+
 def drop_tasks(samples: list[dict], wanted: str | None) -> list[dict]:
     """`--exclude-tasks 10221,10228` leaves those LS tasks out (e.g. uncropped whole-dish images)."""
-    skip = {int(t) for t in (wanted or "").split(",") if t.strip()}
+    skip = set(task_ids(wanted))
     return [d for d in samples if d["task_id"] not in skip]
+
+
+def check_resume(old: list[dict], cfg: dict) -> None:
+    """Rows are matched by (mode, k, seed, fold): only rows measured with the same settings and image pool may be
+    reused, else fold i or a k-subset would mean other images. Rows written before `cfg` existed are trusted."""
+    for r in old:
+        if r.get("cfg") is not None and r["cfg"] != cfg:
+            diff = sorted(k for k in cfg.keys() | r["cfg"].keys() if r["cfg"].get(k) != cfg.get(k))
+            was = {k: r["cfg"].get(k) for k in diff}
+            now = {k: cfg.get(k) for k in diff}
+            raise SystemExit(f"--resume file was measured with other settings: {was} vs now {now}; "
+                             "rerun with the same flags and labels, or start a new report")
+    if any(r.get("cfg") is None for r in old):
+        print("warning: resumed rows without settings (older run): cannot check they match this run", flush=True)
 
 
 def dice_per_image(model, xs: torch.Tensor, ys: list[np.ndarray]) -> list[float]:
@@ -151,27 +170,16 @@ def to_markdown(summary: list[dict], meta: dict) -> str:
 
 
 def collect(s, projects: list[int]) -> tuple[list[dict], list[dict], set]:
-    """Reviewed annotations of `projects` from LS -> (train, val) samples with 256x256 inputs."""
-    import requests
-
+    """Reviewed annotations of `projects` from LS -> (train, val) samples with 256x256 inputs.
+    Reads LS through the backend's own helpers, so the measurement sees the same samples a job would."""
     from tasdf_online import trainer
-    from tasdf_online.app import parse_label_config
+    from tasdf_online.app import ls_project_label, ls_project_tasks
     from tasdf_online.ls_format import fetch_image
 
-    headers = {"Authorization": f"Token {s.ls_token}"}
     train, val, annotators = [], [], set()
     for pid in projects:
-        cfg = requests.get(f"{s.ls_url}/api/projects/{pid}", headers=headers, timeout=60).json()["label_config"]
-        from_name, _, key, _ = parse_label_config(cfg)
-        tasks, page = [], 1
-        while True:
-            r = requests.get(f"{s.ls_url}/api/projects/{pid}/tasks/", params={"page": page, "page_size": 100},
-                             headers=headers, timeout=60)
-            if r.status_code == 404 or not r.json():
-                break
-            r.raise_for_status()
-            tasks += r.json()
-            page += 1
+        from_name, _, key, _ = ls_project_label(s.ls_url, s.ls_token, s.request_timeout, pid)
+        tasks = list(ls_project_tasks(s.ls_url, s.ls_token, s.request_timeout, pid))
         for d in trainer.select_samples(tasks, pid, from_name, s.min_quality_level):
             img, _, _ = fetch_image(s.ls_url, s.ls_token, d["task"]["data"][key], s.request_timeout)
             ann = next(a for a in d["task"]["annotations"] if a.get("id") == d["annotation_id"])
@@ -181,19 +189,24 @@ def collect(s, projects: list[int]) -> tuple[list[dict], list[dict], set]:
     return train, val, annotators
 
 
-def production_model(s, base, stage: str = "blastocyst"):
-    """Current production weights from the bundle registry (the baseline when no registry exists yet)."""
+def production_model(s, base):
+    """Current production weights of the configured stage (the baseline when no registry exists yet)."""
     import copy
     import os
 
     from tasdf_online.bundle_registry import BundleRegistry
+    from tasdf_online.config import load_stages
 
     model = copy.deepcopy(base)
     path = os.path.join(s.registry_dir, "registry.json")
     if not os.path.exists(path):
         return model, "baseline (no registry yet)"
+    stage = next(iter(load_stages(s.stages_file)))  # load_stages allows exactly one stage
     cpu_base = {k: v.cpu() for k, v in base.state_dict().items()}
-    reg = BundleRegistry(s.registry_dir, cpu_base, json.load(open(path))["base_sha"], [stage])
+    with open(path, encoding="utf-8") as f:
+        base_sha = json.load(f)["base_sha"]
+    # no stages passed: opening then never adds an adapter entry, so this reader never rewrites registry.json
+    reg = BundleRegistry(s.registry_dir, cpu_base, base_sha, [])
     model.load_state_dict(reg.state_for(reg.production, stage))
     name = reg.model_version(reg.production, stage)
     del cpu_base
@@ -256,6 +269,11 @@ def main(argv=None) -> None:
         stamp = dt.datetime.now().strftime("%Y%m%d-%H%M")
         jsonl = out / f"learning_curve-{stamp}.jsonl"
     old = read_rows(jsonl) if jsonl.exists() else []
+    pool_ids = json.dumps([d["task_id"] for d in train + val]).encode()
+    cfg = {"epochs": args.epochs, "lr": args.lr, "seeds": args.seeds, "anchor_frac": s.anchor_frac,
+           "no_d10": args.no_d10, "exclude": task_ids(args.exclude_tasks),
+           "pool": hashlib.sha1(pool_ids).hexdigest()[:12]}  # fold i / k-subsets index this exact order
+    check_resume(old, cfg)
     done = frozenset((r["mode"], r["k"], r["seed"], r["fold"]) for r in old)
     if old:
         print(f"resuming {jsonl}: {len(old)} rows already measured", flush=True)
@@ -264,6 +282,7 @@ def main(argv=None) -> None:
     modes = MODES if not prod_name.startswith(("tasdf-base.", "baseline")) else MODES[:2]
 
     def persist(row):
+        row["cfg"] = cfg
         with jsonl.open("a") as fh:
             fh.write(json.dumps(row) + "\n")
             fh.flush()

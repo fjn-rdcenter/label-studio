@@ -27,7 +27,7 @@ services:
       REGISTRY_DIR: /data/tasdf-online/registry
       STAGES_FILE: /data/tasdf-online/stages.json
       BASELINE_CKPT: /data/tasdf-online/baseline.pt
-      HOLDOUT_NPZ: /data/tasdf-online/holdout.npz
+      HOLDOUT_NPZ: ${TASDF_HOLDOUT_NPZ-/data/tasdf-online/holdout.npz}  # must exist; TASDF_HOLDOUT_NPZ= (empty) runs without the D10 gate
       ANCHOR_NPZ: /data/tasdf-online/anchors.npz  # optional: a missing file only logs a warning
       DEVICE: ${TASDF_DEVICE:-cpu}
       TORCH_THREADS: ${TASDF_TORCH_THREADS:-4}

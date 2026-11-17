@@ -54,6 +54,27 @@ def parse_label_config(xml: str | None) -> tuple[str, str, str, dict]:
     return poly.get("name"), to_name, image.get("value")[1:], names
 
 
+def ls_project_label(url: str, token: str, timeout: float, pid: int) -> tuple:
+    """parse_label_config of LS project `pid` (shared with scripts/learning_curve.py)."""
+    resp = requests.request("GET", f"{url}/api/projects/{pid}", headers={"Authorization": f"Token {token}"},
+                            timeout=timeout)
+    resp.raise_for_status()
+    return parse_label_config(resp.json().get("label_config"))
+
+
+def ls_project_tasks(url: str, token: str, timeout: float, pid: int):
+    """Every task of LS project `pid`, page by page (shared with scripts/learning_curve.py)."""
+    page = 1
+    while True:
+        resp = requests.get(f"{url}/api/projects/{pid}/tasks/", params={"page": page, "page_size": 100},
+                            headers={"Authorization": f"Token {token}"}, timeout=timeout)
+        if resp.status_code == 404 or not resp.json():
+            return  # LS paginator raises 404 past the last page
+        resp.raise_for_status()
+        yield from resp.json()
+        page += 1
+
+
 def _sha256(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -63,7 +84,10 @@ def _sha256(path: str) -> str:
 
 
 def _load_npz(path: str, limit: int = 0):
-    if not path or not os.path.exists(path):
+    if not path:
+        return None
+    if not os.path.exists(path):
+        log.warning("%s does not exist: not loaded", path)
         return None
     data = np.load(path)
     images, masks = data["images"], data["masks"]
@@ -72,12 +96,25 @@ def _load_npz(path: str, limit: int = 0):
     return torch.from_numpy(images.astype(np.float32) / 255.0).unsqueeze(1), masks.astype(np.int64)
 
 
-def _free_ram_gb() -> float:
-    with open("/proc/meminfo") as f:
+def _free_ram_gb(meminfo: str = "/proc/meminfo", cgroup: str = "/sys/fs/cgroup") -> float:
+    """Free RAM for this process: the host's MemAvailable, capped by what is left under the container's
+    cgroup v2 limit (compose mem_limit). Page cache we could drop (inactive_file) does not count as used."""
+    host = float("inf")
+    with open(meminfo) as f:
         for line in f:
             if line.startswith("MemAvailable:"):
-                return int(line.split()[1]) / 2 ** 20
-    return float("inf")
+                host = int(line.split()[1]) / 2 ** 20
+                break
+    try:
+        limit = Path(cgroup, "memory.max").read_text().strip()
+        if limit == "max":
+            return host
+        used = int(Path(cgroup, "memory.current").read_text())
+        stat = dict(line.split() for line in Path(cgroup, "memory.stat").read_text().splitlines() if line.strip())
+        used -= int(stat.get("inactive_file", 0))
+        return min(host, max(0, int(limit) - used) / 2 ** 30)
+    except (OSError, ValueError):  # no cgroup v2 files (host run, cgroup v1): the host figure is all we have
+        return host
 
 
 def _on_battery() -> bool:
@@ -113,6 +150,10 @@ class OnlineService:
         moved = self.registry.migrate_legacy(s.state_dir)
         if moved:
             log.info("moved legacy per-project registries %s to %s/legacy (not served)", moved, s.registry_dir)
+        uses_global = any(not cfg.get("holdout_npz") for cfg in self.stages.values())
+        if uses_global and s.holdout_npz and not os.path.exists(s.holdout_npz):
+            # fail closed: without the holdout the D10 forgetting gate would be skipped silently
+            raise RuntimeError(f"HOLDOUT_NPZ={s.holdout_npz} does not exist (unset HOLDOUT_NPZ, or TASDF_HOLDOUT_NPZ= in compose, to run without D10)")
         self.holdouts = {st: _load_npz(cfg.get("holdout_npz") or s.holdout_npz, s.holdout_limit)
                          for st, cfg in self.stages.items()}
         self.anchors = {st: _load_npz(cfg.get("anchors_npz") or s.anchor_npz) if s.anchor_frac > 0 else None
@@ -123,6 +164,8 @@ class OnlineService:
         self.pending_lock = threading.Lock()
         self.pending_delay = 5.0  # seconds after a webhook burst before labels are counted again
         self._pending_timer: threading.Timer | None = None
+        self._pending_sched = threading.Lock()  # guards _pending_timer / _pending_dirty
+        self._pending_dirty = False  # a webhook arrived since the running count started
         self._split_cache: dict[tuple, str] = {}  # (project, task, image) -> "train" | "val": fetch each image once
         self.dashboard_enabled: bool = s.dashboard_enabled
         self.telemetry: dict = {"status": "idle", "jobs": [], "webhook_events": 0}
@@ -219,12 +262,26 @@ class OnlineService:
         return "counted"
 
     def schedule_pending_count(self) -> None:
-        """Count labels again shortly after a burst of webhooks: one count per burst, never two at once."""
-        if self._pending_timer is not None and self._pending_timer.is_alive():
-            return
-        self._pending_timer = threading.Timer(self.pending_delay, self.count_pending)
-        self._pending_timer.daemon = True
-        self._pending_timer.start()
+        """Count labels again shortly after a burst of webhooks: one count per burst, never two at once.
+        A webhook that arrives while a count runs gets one more count after it."""
+        with self._pending_sched:
+            self._pending_dirty = True
+            if self._pending_timer is not None:
+                return
+            self._pending_timer = threading.Timer(self.pending_delay, self._pending_loop)
+            self._pending_timer.daemon = True
+            self._pending_timer.start()
+
+    def _pending_loop(self) -> None:
+        while True:
+            with self._pending_sched:
+                self._pending_dirty = False
+            self.count_pending(wait=True)
+            with self._pending_sched:
+                if not self._pending_dirty:
+                    self._pending_timer = None
+                    return
+            time.sleep(self.pending_delay)
 
     def _new_labels(self, snapshot: dict) -> int:
         """Reviewed annotations added or changed since the last training job."""
@@ -232,13 +289,14 @@ class OnlineService:
         return sum(1 for pid, tasks in snapshot.items() for tid, dg in tasks.items()
                    if (last.get(pid) or {}).get(tid) != dg)
 
-    def count_pending(self, stage: str | None = None) -> dict:
+    def count_pending(self, stage: str | None = None, wait: bool = False) -> dict:
         """Dashboard counts without training: reviewed samples per side, new since the last job, and annotations
-        still waiting for review (below MIN_QUALITY_LEVEL). Only images never split before are fetched."""
+        still waiting for review (below MIN_QUALITY_LEVEL). Only images never split before are fetched.
+        `wait` queues behind a running count instead of skipping (webhook recounts, end of a job)."""
         stage = stage or list(self.stages)[0]
         if not (self.s.ls_url and self.s.ls_token):
             return {"skipped": "LS_URL/LS_TOKEN not set"}
-        if not self.pending_lock.acquire(blocking=False):
+        if not self.pending_lock.acquire(blocking=wait):
             return {"skipped": "a count is already running"}
         try:
             counts, snapshot = {"train": 0, "val": 0, "unreviewed": 0}, {}
@@ -296,8 +354,7 @@ class OnlineService:
         return True, ""
 
     def _project_label(self, pid: int) -> tuple:
-        cfg = self._ls("GET", f"/api/projects/{pid}").json().get("label_config")
-        return parse_label_config(cfg)
+        return ls_project_label(self.s.ls_url, self.s.ls_token, self.s.request_timeout, pid)
 
     def collect(self, stage: str) -> tuple[list[dict], list[dict], dict]:
         """Reviewed annotations of every project of `stage`, re-read from LS, split by image content."""
@@ -328,9 +385,10 @@ class OnlineService:
             self.telemetry["status"] = f"job {job_id}: collecting {stage}"
             train, val, snapshot = self.collect(stage)
             new = self._new_labels(snapshot)
-            self.telemetry["pending"] = {**(self.telemetry.get("pending") or {}), "stage": stage, "new": new,
-                                         "train": len(train), "val": len(val), "threshold": self.s.train_min_new,
-                                         "at": time.time()}
+            pending = {**(self.telemetry.get("pending") or {}), "stage": stage, "new": new, "train": len(train),
+                       "val": len(val), "threshold": self.s.train_min_new, "at": time.time()}
+            pending.pop("error", None)  # LS answered: an older count failure no longer applies
+            self.telemetry["pending"] = pending
             if not train or (not force and new < self.s.train_min_new):
                 return None
             x = torch.stack([d["x"] for d in train])
@@ -408,7 +466,7 @@ class OnlineService:
             if accepted:
                 self._serve(bundle)
             self.registry.set_meta("last_data_snapshot", snapshot)
-            self.telemetry["pending"]["new"] = 0  # this job used them; a label saved meanwhile triggers a recount
+            self.count_pending(wait=True)  # against the new snapshot: labels saved during the job stay counted
             self.registry.set_meta("job_count", job_count)
             trend = (self.registry.data.get("val_trend") or []) + [{
                 "at": t0, "bundle": bundle, "accepted": accepted, "val": record["metrics"][stage]["val"],
@@ -440,15 +498,7 @@ class OnlineService:
         return resp
 
     def _project_tasks(self, pid: int):
-        page = 1
-        while True:
-            resp = requests.get(f"{self.s.ls_url}/api/projects/{pid}/tasks/",
-                                params={"page": page, "page_size": 100}, headers=self._auth(), timeout=self.s.request_timeout)
-            if resp.status_code == 404 or not resp.json():
-                return  # LS paginator raises 404 past the last page
-            resp.raise_for_status()
-            yield from resp.json()
-            page += 1
+        return ls_project_tasks(self.s.ls_url, self.s.ls_token, self.s.request_timeout, pid)
 
     def refresh_ls(self) -> dict:
         """Point every configured project at `<production>.<stage>` (optionally precomputing N unlabeled tasks).
@@ -650,7 +700,13 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
     def rollback():
         if not ops_allowed():
             return jsonify(error="unauthorized"), 401
-        return jsonify(production=svc.rollback(), refresh=svc.refresh_ls())
+        if not svc.train_lock.acquire(blocking=False):  # a finishing job would serve its bundle over the rollback
+            return jsonify(status="training job running"), 409
+        try:
+            target = svc.rollback()
+        finally:
+            svc.train_lock.release()
+        return jsonify(production=target, refresh=svc.refresh_ls())
 
     @app.post("/pending/refresh")
     def pending_refresh():
