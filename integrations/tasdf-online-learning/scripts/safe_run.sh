@@ -26,11 +26,14 @@ mkdir -p "$(dirname "$LOG")"
 log() { echo "[$(date '+%F %T')] $*" | tee -a "$LOG" >&2; }
 
 on_ac() {
-    local f
+    # no power supply reported at all (desktop, server, WSL2): mains, as tasdf_online.app._on_battery decides
+    local f found=0
     for f in /sys/class/power_supply/*/online; do
+        [ -e "$f" ] || continue
+        found=1
         [ "$(cat "$f" 2>/dev/null)" = 1 ] && return 0
     done
-    return 1
+    [ "$found" = 0 ]
 }
 
 gpu_temp() {
@@ -49,6 +52,17 @@ cpu_temp() {
     done
     echo 0
 }
+
+# pausing a container stops everything in it: only a one-off `docker compose run` container, never the backend
+# that serves /predict and /webhook to Label Studio. The name may not exist yet (`run --name` creates it below).
+if [ -n "$CONTAINER" ]; then
+    oneoff=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.oneoff"}}' "$CONTAINER" 2>/dev/null)
+    if [ -n "$oneoff" ] && [ "$oneoff" != True ]; then
+        log "refused: $CONTAINER is a long-running service; run the command in a one-off container instead:"
+        log "  SAFE_RUN_CONTAINER=tasdf-lc $0 docker compose -f docker-compose.tasdf.yml run --rm --name tasdf-lc tasdf-online ..."
+        exit 2
+    fi
+fi
 
 if ! on_ac; then
     log "refused: not on AC power, plug in the charger first: $*"
@@ -70,9 +84,9 @@ resume_cmd() {
 stop_all() {
     [ "$paused" = 1 ] && resume_cmd
     kill -TERM -- "-$pid" 2>/dev/null
-    log "interrupted, stopped pid $pid"
-    # shortcut: killing `docker exec` does not stop the process inside the container
-    [ -n "$CONTAINER" ] && log "still running in $CONTAINER without the watchdog: docker exec $CONTAINER pkill -f <script>"
+    # killing the docker client does not stop the container; it is a one-off (checked at start), so stop it
+    [ -n "$CONTAINER" ] && docker stop "$CONTAINER" >/dev/null 2>&1
+    log "interrupted, stopped pid $pid${CONTAINER:+ and container $CONTAINER}"
     exit 130
 }
 trap stop_all INT TERM

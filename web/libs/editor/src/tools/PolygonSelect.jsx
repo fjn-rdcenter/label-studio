@@ -8,6 +8,7 @@ import { Tool } from "../components/Toolbar/Tool";
 import InfoModal from "../components/Infomodal/Infomodal";
 import { IconSelectTool } from "../assets/icons";
 import { clampDelta, pointsInRect } from "../utils/polygonOps";
+import { editablePolygon } from "./PolygonMerge";
 
 // how close (screen px) the pointer must be to a vertex to pick it
 const SNAP_PX = 8;
@@ -46,18 +47,12 @@ const _Tool = types
     get target() {
       const r = self.annotation?.highlightedNode;
 
-      return r?.type === "polygonregion" &&
-        r.closed &&
-        !r.isReadOnly() &&
-        r.parent?.name === self.obj?.name &&
-        r.results.some((res) => res.from_name === self.control)
-        ? r
-        : null;
+      return editablePolygon(self, r) ? r : null;
     },
   }))
   .actions((self) => {
     let region = null; // polygon whose vertices are selected
-    let drag = null; // group move: last pointer position
+    let drag = null; // group move: last pointer position, vertex pressed, shift, whether anything moved
     let box = null; // box selection: start point, shift, vertex under the pointer
     let layer = null;
     let rect = null;
@@ -97,8 +92,12 @@ const _Tool = types
       afterUpdateSelected() {
         if (self.selected) {
           window.addEventListener("keydown", onKeyDown, true);
+          // start fresh: vertices picked with the Move tool must not join the selection
+          region = null;
+          self.syncTarget();
         } else {
           window.removeEventListener("keydown", onKeyDown, true);
+          self.endDrag();
           self.clearSelection();
           self.removeBox();
           region = null;
@@ -107,6 +106,17 @@ const _Tool = types
 
       beforeDestroy() {
         window.removeEventListener("keydown", onKeyDown, true);
+        self.endDrag();
+      },
+
+      // release the history lock taken on mousedown, even if mouseup never comes
+      endDrag() {
+        if (!drag) return;
+        const { moved } = drag;
+
+        drag = null;
+        self.annotation?.history.unfreeze("polygon-select");
+        if (moved && region && isAlive(region)) region.notifyPointsChanged();
       },
 
       clearSelection() {
@@ -118,6 +128,8 @@ const _Tool = types
         if (region === self.target) return;
         self.clearSelection();
         region = self.target;
+        // PolygonPoint.selected is shared with the Move tool's selected point: start with none
+        self.clearSelection();
       },
 
       removeBox() {
@@ -151,7 +163,7 @@ const _Tool = types
         const hit = nearestVertex(pt);
 
         if (hit?.selected) {
-          drag = { last: pt };
+          drag = { last: pt, hit, shift: ev.shiftKey, moved: false };
           self.annotation.history.freeze("polygon-select");
           return;
         }
@@ -169,6 +181,7 @@ const _Tool = types
             self.obj.stageHeight,
           );
 
+          if (dx || dy) drag.moved = true;
           moving.forEach((p) => p.movePoint(dx, dy));
           drag.last = [drag.last[0] + dx, drag.last[1] + dy];
           return;
@@ -178,9 +191,17 @@ const _Tool = types
 
       mouseupEv(_, [, , cx, cy]) {
         if (drag) {
-          drag = null;
-          self.annotation.history.unfreeze("polygon-select");
-          region.notifyPointsChanged();
+          const { moved, hit, shift } = drag;
+
+          self.endDrag();
+          if (moved) return;
+          // a click on a selected vertex: Shift deselects it, otherwise it becomes the only one
+          if (shift) {
+            hit.setSelected(false);
+          } else {
+            self.clearSelection();
+            hit.setSelected(true);
+          }
           return;
         }
         if (!box) return;

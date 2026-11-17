@@ -22,22 +22,25 @@ const labelSignature = (results) =>
     .sort()
     .join(";");
 
+// Is r a closed, editable polygon of this tool's control and image
+export const editablePolygon = (tool, r) =>
+  r?.type === "polygonregion" &&
+  r.closed &&
+  !r.isReadOnly() &&
+  r.parent?.name === tool.obj?.name &&
+  r.results.some((res) => res.from_name === tool.control);
+
 // Two or more selected, closed, editable polygons of this tool's control and image, or null
 export const selectedPolygons = (tool) => {
   const regions = tool.annotation?.selectedRegions ?? [];
-  const ok =
-    regions.length > 1 &&
-    regions.every(
-      (r) =>
-        r.type === "polygonregion" &&
-        r.closed &&
-        !r.isReadOnly() &&
-        r.parent?.name === tool.obj?.name &&
-        r.results.some((res) => res.from_name === tool.control),
-    );
 
-  return ok ? regions : null;
+  return regions.length > 1 && regions.every((r) => editablePolygon(tool, r)) ? regions : null;
 };
+
+const toCanvas = (points) => points.map((p) => [p.canvasX, p.canvasY]);
+
+// Contours of a polygon region in canvas coords
+export const regionGeometry = (r) => ({ points: toCanvas(r.points), holes: toCanvas(r.holes) });
 
 const ToolView = observer(({ item }) => (
   <Tool
@@ -77,12 +80,7 @@ const _Tool = types
 
       if (serialized.some((results) => !results.length)) return;
       // canvas coords, so the blend tolerance is in screen px
-      const toCanvas = (points) => points.map((p) => [p.canvasX, p.canvasY]);
-      const merged = mergePolygons(
-        regions.map((r) => ({ points: toCanvas(r.points), holes: toCanvas(r.holes) })),
-        BLEND_PX / (self.obj?.zoomScale || 1),
-        SLIT_PX,
-      );
+      const merged = mergePolygons(regions.map(regionGeometry), BLEND_PX / (self.obj?.zoomScale || 1), SLIT_PX);
 
       if (merged.error) {
         InfoModal.warning(merged.error);

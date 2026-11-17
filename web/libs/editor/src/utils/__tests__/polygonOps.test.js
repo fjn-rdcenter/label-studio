@@ -393,6 +393,28 @@ describe("carvePolygons", () => {
     expect(res.error).toBeUndefined();
     expect(area(res.pieces[0].holes)).toBeCloseTo(9);
     expect(net(res.pieces[0])).toBeCloseTo(91);
+    expect(res.filledHoles).toBe(1);
+  });
+
+  it("reports the smaller hole it fills when carving two polygons out of one", () => {
+    const res = carvePolygons([
+      { points: square(0, 0, 10), holes: [] },
+      { points: square(1, 1, 2), holes: [] },
+      { points: square(5, 5, 3), holes: [] },
+    ]);
+
+    expect(res.pieces).toHaveLength(1);
+    expect(res.filledHoles).toBe(1);
+    expect(area(res.pieces[0].holes)).toBeCloseTo(9);
+  });
+
+  it("reports no filled hole when one hole is enough", () => {
+    expect(
+      carvePolygons([
+        { points: square(4, 4, 2), holes: [] },
+        { points: square(0, 0, 10), holes: [] },
+      ]).filledHoles,
+    ).toBe(0);
   });
 });
 
@@ -552,6 +574,7 @@ describe("cutPolygon", () => {
     expect(res.error).toBeUndefined();
     expect(area(res.inside[0].points)).toBeCloseTo(9);
     expect(area(res.outside[0].holes)).toBeCloseTo(9);
+    expect(res.filledHoles).toBe(1);
   });
 });
 

@@ -56,16 +56,18 @@ Số đo trên RTX 3060 Laptop (6 GB): **49 ms/ảnh/epoch** khi học nặng, V
 
 **Có tốt lên thật không?** Sau mỗi đợt gán nhãn, chạy:
 ```bash
-I=integrations/tasdf-online-learning C=label-studio-tasdf-online-1
-docker cp $I/scripts/learning_curve.py $C:/tmp/
-SAFE_RUN_CONTAINER=$C $I/scripts/safe_run.sh docker exec -e PYTHONPATH=/app $C python /tmp/learning_curve.py --projects 36,37
+I=integrations/tasdf-online-learning
+F="-f docker-compose.yml -f docker-compose.tasdf.yml -f docker-compose.tasdf-gpu.yml"
+SAFE_RUN_CONTAINER=tasdf-lc $I/scripts/safe_run.sh docker compose $F run --rm --no-deps --name tasdf-lc \
+  -v "$PWD/$I/scripts:/app/scripts:ro" -e PYTHONPATH=/app tasdf-online python /app/scripts/learning_curve.py --projects 36,37
 ```
+Script chạy trong một container riêng (`run --rm`), không chạy trong container backend. Nhờ vậy khi máy nóng, `safe_run.sh` chỉ tạm dừng container này, còn `/predict` cho annotator vẫn chạy. `safe_run.sh` từ chối `SAFE_RUN_CONTAINER` trỏ vào container backend.
 Script so sánh học nhẹ / nặng-từ-base / nặng-từ-production theo số nhãn, trên val chưa từng học (dùng leave-one-out khi val < 10 ảnh). Kết quả ghi vào `reports/history.md`.
-Mỗi dòng đo được ghi ngay vào `reports/learning_curve-<thời điểm>.jsonl`. Bị ngắt thì chạy lại với `--resume <file.jsonl>` để bỏ qua phần đã đo.
+Mỗi dòng đo được ghi ngay vào `reports/learning_curve-<thời điểm>.jsonl`. Bị ngắt thì chạy lại với `--resume <file.jsonl>` để bỏ qua phần đã đo. `--resume` phải dùng đúng các cờ và đúng tập nhãn như lần chạy trước. Nếu `--epochs`, `--lr`, `--exclude-tasks` hoặc danh sách ảnh đã đổi, script báo lỗi thay vì trộn kết quả.
 Với leave-one-out, có thể chạy từng fold (`--fold i`, không ghi báo cáo), rồi chạy một lần `--resume` cuối để tổng hợp. Như vậy GPU được nghỉ giữa các fold. Muốn chạy nhanh hơn: `--ks 8,18` chỉ đo các số nhãn đó, `--no-d10` bỏ chấm D10 cho từng ứng viên. `--exclude-tasks 10221,10228` bỏ các task đó khỏi phép đo (ví dụ ảnh toàn đĩa chưa cắt phôi).
 
 **Chạy an toàn trên laptop.** Máy đã tự tắt khi GPU chạy 100% liên tục. Vì vậy mọi lệnh nặng (pytest, learning curve) chạy qua `scripts/safe_run.sh`:
-- Script từ chối chạy khi máy không cắm sạc.
+- Script từ chối chạy khi máy không cắm sạc. Máy không báo nguồn điện (máy bàn, WSL2) được coi là đang cắm sạc.
 - Tạm dừng lệnh khi GPU ≥ 80°C hoặc CPU ≥ 90°C, chạy tiếp khi cả hai < 70°C.
 - Ghi nhiệt độ vào `reports/safe_run.log`.
 
@@ -78,7 +80,7 @@ Khi chạy bằng Docker, mỗi biến chỉ có **một** nơi đặt:
 | Tầng | Đặt ở đâu | Biến |
 |---|---|---|
 | Đường dẫn trong container | `environment:` của `docker-compose.tasdf.yml` (cố định, ghi đè `tasdf.env`) | `LS_URL`, `STATE_DIR`, `BASELINE_CKPT`, `HOLDOUT_NPZ`, `ANCHOR_NPZ` |
-| Thông số theo môi trường | `.env` ở thư mục gốc repo hoặc `docker compose --env-file <file>`. Mẫu: [`compose.env.example`](compose.env.example) | `TASDF_DATA_DIR`, `TASDF_UID`/`TASDF_GID`, `TASDF_PUBLISH`, `TASDF_DEVICE`, `TASDF_TORCH_THREADS`, `TASDF_HOLDOUT_LIMIT`, `TASDF_DASHBOARD`, `TASDF_TORCH_INDEX_URL` |
+| Thông số theo môi trường | `.env` ở thư mục gốc repo hoặc `docker compose --env-file <file>`. Mẫu: [`compose.env.example`](compose.env.example) | `TASDF_DATA_DIR`, `TASDF_UID`/`TASDF_GID`, `TASDF_PUBLISH`, `TASDF_DEVICE`, `TASDF_TORCH_THREADS`, `TASDF_HOLDOUT_LIMIT`, `TASDF_HOLDOUT_NPZ` (để trống = chạy không có cổng D10), `TASDF_DASHBOARD`, `TASDF_TORCH_INDEX_URL` |
 | Secret và các tham số app còn lại | `${TASDF_DATA_DIR}/tasdf.env`, không commit. Mẫu: [`tasdf.env.example`](tasdf.env.example) | `LS_TOKEN`, `OL_TOKEN`, `MIN_QUALITY_LEVEL`, `REFRESH_NEXT_N`, tham số huấn luyện … |
 
 Lưu ý:
