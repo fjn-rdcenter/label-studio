@@ -121,6 +121,9 @@ def test_load_stages_validates(tmp_path):
     (tmp_path / "stages.json").write_text(json.dumps({**good, "pn": {"projects": [37]}}))
     with pytest.raises(ValueError, match="both"):
         load_stages(str(tmp_path / "stages.json"))
+    (tmp_path / "stages.json").write_text(json.dumps({**good, "pn": {"projects": [38]}}))
+    with pytest.raises(ValueError, match="one stage"):
+        load_stages(str(tmp_path / "stages.json"))
     (tmp_path / "stages.json").write_text(json.dumps({"blastocyst": {"projects": [1], "anchors_npz": "missing.npz"}}))
     with pytest.raises(ValueError, match="does not exist"):
         load_stages(str(tmp_path / "stages.json"))

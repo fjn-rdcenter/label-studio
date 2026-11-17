@@ -1,5 +1,7 @@
 import dataclasses
 import hashlib
+import json
+import threading
 
 import numpy as np
 import pytest
@@ -220,11 +222,79 @@ def test_counts_labels_without_training(ls_svc, monkeypatch):
 def test_webhook_burst_triggers_one_recount(ls_svc, monkeypatch):
     ls_svc.pending_delay = 0.05
     counts = []
-    monkeypatch.setattr(ls_svc, "count_pending", lambda stage=None: counts.append(stage))
+    monkeypatch.setattr(ls_svc, "count_pending", lambda stage=None, wait=False: counts.append(stage))
     for _ in range(3):
         assert ls_svc.on_webhook({"action": "ANNOTATION_UPDATED", "project": {"id": 7}}) == "counted"
     ls_svc._pending_timer.join(2)
-    assert counts == [None]
+    assert counts == [None] and ls_svc._pending_timer is None
+
+
+def test_webhook_during_a_count_gets_another_count(ls_svc, monkeypatch):
+    ls_svc.pending_delay = 0.05
+    started, release, counts = threading.Event(), threading.Event(), []
+
+    def slow_count(stage=None, wait=False):
+        counts.append(wait)
+        started.set()
+        release.wait(2)
+
+    monkeypatch.setattr(ls_svc, "count_pending", slow_count)
+    ls_svc.on_webhook({"action": "ANNOTATION_UPDATED", "project": {"id": 7}})
+    timer = ls_svc._pending_timer
+    assert started.wait(2)
+    ls_svc.on_webhook({"action": "ANNOTATION_UPDATED", "project": {"id": 7}})  # saved while the count runs
+    release.set()
+    timer.join(2)
+    assert counts == [True, True] and ls_svc._pending_timer is None
+
+
+def test_label_saved_during_a_job_stays_counted(ls_svc, monkeypatch):
+    collect = ls_svc.collect
+
+    def collect_then_label(stage):
+        out = collect(stage)
+        ls_svc.fake_tasks["list"] = ls_svc.fake_tasks["list"] + _ls_tasks([13])  # reviewed while the job trains
+        return out
+
+    monkeypatch.setattr(ls_svc, "collect", collect_then_label)
+    ls_svc.run_job(force=True, job_id="d1")
+    assert ls_svc.telemetry["pending"]["new"] == 1
+
+
+def test_job_clears_an_old_count_error(ls_svc):
+    ls_svc.telemetry["pending"] = {"error": "ConnectionError: LS down"}
+    ls_svc.s = dataclasses.replace(ls_svc.s, train_min_new=50)
+    ls_svc.run_job(force=False)
+    assert "error" not in ls_svc.telemetry["pending"] and ls_svc.telemetry["pending"]["new"] == 12
+
+
+def test_missing_holdout_fails_at_startup(settings, tmp_path):
+    (tmp_path / "stages.json").write_text(json.dumps({"blastocyst": {"projects": [7]}}))
+    with pytest.raises(RuntimeError, match="HOLDOUT_NPZ"):
+        app_module.OnlineService(dataclasses.replace(settings, holdout_npz=str(tmp_path / "gone.npz")))
+
+
+def test_free_ram_respects_the_container_limit(tmp_path):
+    (tmp_path / "meminfo").write_text("MemTotal: 16777216 kB\nMemAvailable: 8388608 kB\n")  # host: 8 GiB free
+    cg = tmp_path / "cg"
+    cg.mkdir()
+    (cg / "memory.max").write_text(str(6 * 2 ** 30))
+    (cg / "memory.current").write_text(str(5 * 2 ** 30 + 2 ** 29))
+    (cg / "memory.stat").write_text(f"anon 1\ninactive_file {2 ** 29}\n")  # 0.5 GiB droppable cache
+    assert app_module._free_ram_gb(str(tmp_path / "meminfo"), str(cg)) == pytest.approx(1.0)
+    (cg / "memory.max").write_text("max\n")
+    assert app_module._free_ram_gb(str(tmp_path / "meminfo"), str(cg)) == pytest.approx(8.0)
+    assert app_module._free_ram_gb(str(tmp_path / "meminfo"), str(tmp_path / "none")) == pytest.approx(8.0)
+
+
+def test_rollback_conflicts_while_training(client):
+    svc = client.application.config["svc"]
+    assert svc.train_lock.acquire(blocking=False)
+    try:
+        assert client.post("/rollback", headers=AUTH).status_code == 409
+    finally:
+        svc.train_lock.release()
+    assert client.post("/rollback", headers=AUTH).status_code == 200
 
 
 def test_pending_refresh_needs_the_ops_token(client):

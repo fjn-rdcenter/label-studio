@@ -136,6 +136,9 @@ def load_stages(path: str) -> dict:
                 if not f.exists():
                     raise ValueError(f"{path}: {key} {f} of stage {stage!r} does not exist")
                 cfg[key] = str(f)
+    if len(stages) > 1:
+        # a job trains one stage but the decoder is shared: a bundle would lack the other stages' adapters
+        raise ValueError(f"{path}: phase A supports one stage, got {list(stages)}; several need joint training (phase C)")
     return stages
 
 

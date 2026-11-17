@@ -8,13 +8,10 @@ import { Tool } from "../components/Toolbar/Tool";
 import InfoModal from "../components/Infomodal/Infomodal";
 import { IconSplitTool } from "../assets/icons";
 import { carvePolygons, cutAlongLine, cutPolygon, snapToContour, withGeometry } from "../utils/polygonOps";
-import { selectedPolygons } from "./PolygonMerge";
+import { editablePolygon, regionGeometry, selectedPolygons } from "./PolygonMerge";
 
 // how close (screen px) a click must be to snap to the polygon or to close the drawn area
 const SNAP_PX = 8;
-
-const toCanvas = (points) => points.map((p) => [p.canvasX, p.canvasY]);
-const regionGeometry = (r) => ({ points: toCanvas(r.points), holes: toCanvas(r.holes) });
 
 const ToolView = observer(({ item }) => (
   <Tool
@@ -50,13 +47,7 @@ const _Tool = types
     get splitTarget() {
       const r = self.annotation?.highlightedNode;
 
-      return r?.type === "polygonregion" &&
-        r.closed &&
-        !r.isReadOnly() &&
-        r.parent?.name === self.obj?.name &&
-        r.results.some((res) => res.from_name === self.control)
-        ? r
-        : null;
+      return editablePolygon(self, r) ? r : null;
     },
 
     // Selected polygons to carve one out of another, or null
@@ -165,6 +156,7 @@ const _Tool = types
         }
         // new pieces first so the first created region is the cut-out one
         self.replaceRegion(region, [...res.inside, ...res.outside]);
+        self.warnFilledHoles(res.filledHoles);
       },
 
       carve() {
@@ -179,6 +171,12 @@ const _Tool = types
           return;
         }
         self.replaceRegion(regions[res.outerIndex], res.pieces);
+        self.warnFilledHoles(res.filledHoles);
+      },
+
+      // PolygonRegion stores one hole: tell the user the smaller ones were filled
+      warnFilledHoles(n) {
+        if (n > 0) InfoModal.warning(`Polygon chỉ giữ được 1 lỗ: đã lấp ${n} lỗ nhỏ hơn. Hãy cắt từng polygon một.`);
       },
 
       // Replace a region by pieces given in canvas coords, keeping its results (labels) on each piece
