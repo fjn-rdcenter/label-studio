@@ -46,6 +46,13 @@ def ks_for(n: int, start: int = 4) -> list[int]:
     return ks + [n] if n else []
 
 
+def pick_ks(n: int, wanted: str | None) -> list[int]:
+    """`--ks 8,18` keeps the requested sizes that fit n training images; nothing requested = ks_for(n)."""
+    if not wanted:
+        return ks_for(n)
+    return [k for k in (int(v) for v in wanted.split(",") if v.strip()) if 0 < k <= n]
+
+
 def dice_per_image(model, xs: torch.Tensor, ys: list[np.ndarray]) -> list[float]:
     from tasdf_online import trainer
 
@@ -208,6 +215,8 @@ def main(argv=None) -> None:
     ap.add_argument("--reports", default="/data/tasdf-online/reports")
     ap.add_argument("--resume", help="JSONL of an interrupted run: append to it and skip rows it already has")
     ap.add_argument("--fold", type=int, help="leave-one-out only: run this fold and exit without a report")
+    ap.add_argument("--ks", help="comma-separated training sizes to measure, e.g. 8,18 (default: 4, 8, 16, ... all)")
+    ap.add_argument("--no-d10", action="store_true", help="skip the D10 score of every candidate (saves time)")
     args = ap.parse_args(argv)
 
     from tasdf_online import learner
@@ -225,7 +234,7 @@ def main(argv=None) -> None:
     gc.collect()
     base = base.to(device).eval()
     prod, prod_name = production_model(s, base)
-    holdout = _load_npz(s.holdout_npz, s.holdout_limit)
+    holdout = None if args.no_d10 else _load_npz(s.holdout_npz, s.holdout_limit)
     anchors = _load_npz(s.anchor_npz) if s.anchor_npz and s.anchor_frac > 0 else None  # same as the job (ANCHOR_FRAC)
     projects = [int(p) for p in args.projects.split(",") if p]
     train, val, annotators = collect(s, projects)
@@ -255,7 +264,7 @@ def main(argv=None) -> None:
 
     if len(val) >= VAL_MIN:
         evaluation = f"fixed validation split ({len(val)} images, content hash, never trained on)"
-        rows = run_curve(train, val, holdout, anchors, models, ks=ks_for(len(train)), seeds=args.seeds,
+        rows = run_curve(train, val, holdout, anchors, models, ks=pick_ks(len(train), args.ks), seeds=args.seeds,
                          epochs=args.epochs, lr=args.lr, amp=amp, on_row=persist, done=done, modes=modes,
                          anchor_frac=s.anchor_frac)
     else:  # too few validation images for a fixed split: leave-one-out over everything reviewed
@@ -266,7 +275,7 @@ def main(argv=None) -> None:
             if args.fold is not None and i != args.fold:
                 continue
             rest = pool[:i] + pool[i + 1:]
-            rows += run_curve(rest, [held], holdout, anchors, models, ks=ks_for(len(rest)), seeds=1,
+            rows += run_curve(rest, [held], holdout, anchors, models, ks=pick_ks(len(rest), args.ks), seeds=1,
                               epochs=args.epochs, lr=args.lr, amp=amp, fold=i, on_row=persist, done=done, modes=modes,
                               anchor_frac=s.anchor_frac)
         if args.fold is not None:  # one chunk of a run split to keep the GPU cool; report on the final call

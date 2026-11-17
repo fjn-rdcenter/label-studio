@@ -17,6 +17,12 @@ def test_ks_double_up_to_all():
     assert learning_curve.ks_for(0) == []
 
 
+def test_pick_ks_keeps_requested_sizes_that_fit():
+    assert learning_curve.pick_ks(18, "8,18") == [8, 18]
+    assert learning_curve.pick_ks(10, "8, 18") == [8]
+    assert learning_curve.pick_ks(10, None) == learning_curve.ks_for(10)
+
+
 def test_run_curve_reports_every_mode_and_reference():
     torch.manual_seed(0)
     base = learner.build_model(base_channels=8).eval()

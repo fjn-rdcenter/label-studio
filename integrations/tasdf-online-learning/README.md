@@ -62,7 +62,7 @@ SAFE_RUN_CONTAINER=$C $I/scripts/safe_run.sh docker exec -e PYTHONPATH=/app $C p
 ```
 Script so sánh học nhẹ / nặng-từ-base / nặng-từ-production theo số nhãn, trên val chưa từng học (dùng leave-one-out khi val < 10 ảnh). Kết quả ghi vào `reports/history.md`.
 Mỗi dòng đo được ghi ngay vào `reports/learning_curve-<thời điểm>.jsonl`. Bị ngắt thì chạy lại với `--resume <file.jsonl>` để bỏ qua phần đã đo.
-Với leave-one-out, có thể chạy từng fold (`--fold i`, không ghi báo cáo), rồi chạy một lần `--resume` cuối để tổng hợp. Như vậy GPU được nghỉ giữa các fold.
+Với leave-one-out, có thể chạy từng fold (`--fold i`, không ghi báo cáo), rồi chạy một lần `--resume` cuối để tổng hợp. Như vậy GPU được nghỉ giữa các fold. Muốn chạy nhanh hơn: `--ks 8,18` chỉ đo các số nhãn đó, `--no-d10` bỏ chấm D10 cho từng ứng viên.
 
 **Chạy an toàn trên laptop.** Máy đã tự tắt khi GPU chạy 100% liên tục. Vì vậy mọi lệnh nặng (pytest, learning curve) chạy qua `scripts/safe_run.sh`:
 - Script từ chối chạy khi máy không cắm sạc.
