@@ -52,6 +52,8 @@ services:
   opencv-segmentation:
     build:
       context: ./integrations/opencv-segmentation
+      additional_contexts:
+        certs: ./certs
     restart: unless-stopped
     env_file:
       - path: ./.data/label_studio_data/opencv.env

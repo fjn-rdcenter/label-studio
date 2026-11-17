@@ -12,6 +12,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Trust the corporate proxy CA (DER or PEM) so pip can reach PyPI and download.pytorch.org.
+COPY --from=certs FJS_SSL_Certificates.crt /usr/local/share/ca-certificates/FJS_SSL_Certificates.crt
+RUN if ! grep -q -- '-----BEGIN CERTIFICATE-----' /usr/local/share/ca-certificates/FJS_SSL_Certificates.crt; then \
+      openssl x509 -inform DER -in /usr/local/share/ca-certificates/FJS_SSL_Certificates.crt -outform PEM -out /tmp/fjs.pem \
+      && mv /tmp/fjs.pem /usr/local/share/ca-certificates/FJS_SSL_Certificates.crt; \
+    fi \
+    && update-ca-certificates
+ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir torch==${TORCH_VERSION} --index-url ${TORCH_INDEX_URL} \
