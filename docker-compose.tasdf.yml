@@ -9,6 +9,8 @@ services:
   tasdf-online:
     build:
       context: ./integrations/tasdf-online-learning
+      additional_contexts:
+        certs: ./certs
       args:
         TORCH_INDEX_URL: ${TASDF_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
     # must own TASDF_DATA_DIR on the host (bash's UID is readonly and not exported, hence TASDF_UID)

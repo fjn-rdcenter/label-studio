@@ -9,8 +9,28 @@ ENV BUILD_NO_SERVER=true \
     BUILD_MODULE=true \
     YARN_CACHE_FOLDER=/root/web/.yarn \
     NODE_ENV=production
+ENV http_proxy=http://hoc-nt:Abc1234567@proxy.fujinet.vn:8080
+ENV https_proxy=http://hoc-nt:Abc1234567@proxy.fujinet.vn:8080
+ENV no_proxy=localhost
+ENV HTTP_PROXY=http://hoc-nt:Abc1234567@proxy.fujinet.vn:8080
+ENV HTTPS_PROXY=http://hoc-nt:Abc1234567@proxy.fujinet.vn:8080
+ENV NO_PROXY=localhost
 
 WORKDIR /label-studio/web
+
+COPY ./certs/FJS_SSL_Certificates.crt /usr/local/share/ca-certificates/FJS_SSL_Certificates.crt
+RUN if ! grep -q -- '-----BEGIN CERTIFICATE-----' /usr/local/share/ca-certificates/FJS_SSL_Certificates.crt; then \
+      openssl x509 -inform DER \
+        -in /usr/local/share/ca-certificates/FJS_SSL_Certificates.crt \
+        -outform PEM \
+        -out /tmp/FJS_SSL_Certificates.pem \
+      && mv /tmp/FJS_SSL_Certificates.pem /usr/local/share/ca-certificates/FJS_SSL_Certificates.crt; \
+    fi \
+    && update-ca-certificates
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+# Node ships its own CA list and ignores the system store unless told otherwise.
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 
 # Fix Docker Arm64 Build
 RUN yarn config set registry https://registry.npmjs.org/
@@ -74,6 +94,13 @@ RUN set -eux \
         dnsutils \
         vim \
     && rm -rf /var/lib/apt/lists/* /tmp/*
+
+# Trust the corporate proxy CA here too (already converted to PEM in frontend-builder).
+COPY --from=frontend-builder /usr/local/share/ca-certificates/FJS_SSL_Certificates.crt /usr/local/share/ca-certificates/
+RUN update-ca-certificates
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    PIP_CERT=/etc/ssl/certs/ca-certificates.crt
 
 RUN --mount=type=cache,target=$PIP_CACHE_DIR,uid=1001,gid=0 \
     pip3 install --upgrade pip setuptools && \
