@@ -86,3 +86,6 @@ docker-compose.override.yml
 data
 
 OPERATIONS.md
+
+# corporate proxy CA for Docker builds: local only, see FJSreadme.md
+certs/
