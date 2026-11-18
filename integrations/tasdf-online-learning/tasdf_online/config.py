@@ -65,6 +65,13 @@ class Settings:
     erosion: str
     request_timeout: float
     dashboard_enabled: bool = True
+    # short-term tier: per-well adapter and propagation ("Done image")
+    journal_dir: str = "/data/tasdf-online/propagation"
+    crop_size: int = 600
+    band_px: int = 8
+    adapt_steps: int = 3
+    adapt_lr: float = 1e-4
+    adapt_max_wells: int = 16
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -108,6 +115,12 @@ class Settings:
             erosion=os.getenv("EROSION", "cross"),
             request_timeout=_float("LS_TIMEOUT", 30),
             dashboard_enabled=os.getenv("DASHBOARD_ENABLED", "1").strip().lower() in {"1", "true", "on", "yes"},
+            journal_dir=os.getenv("JOURNAL_DIR", "/data/tasdf-online/propagation"),
+            crop_size=_int("ADAPT_CROP", 600),
+            band_px=_int("ADAPT_BAND_PX", 8),  # at 256 px: how far a refined boundary may move from the carried one
+            adapt_steps=_int("ADAPT_STEPS", 3),
+            adapt_lr=_float("ADAPT_LR", 1e-4),
+            adapt_max_wells=_int("ADAPT_MAX_WELLS", 16),
         )
 
 
