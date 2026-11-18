@@ -73,6 +73,26 @@ Với leave-one-out, có thể chạy từng fold (`--fold i`, không ghi báo c
 
 Job trong backend cũng hoãn khi máy chạy pin hoặc GPU ≥ 75°C, và nghỉ giữa các epoch khi GPU ≥ 80°C.
 
+## Tầng ngắn hạn: "Xong ảnh"
+
+Thiết kế: [`docs/superpowers/specs/2026-11-19-tasdf-well-adapter-design.md`](../../docs/superpowers/specs/2026-11-19-tasdf-well-adapter-design.md).
+
+**Thao tác.** Trong project timelapse (1 task = 1 well), bác sĩ sửa xong một ảnh rồi bấm **Xong ảnh** trên thanh công cụ hoặc **Shift+Enter**. Ảnh đó trở thành nhãn vàng, adapter của well học từ nó, và đề xuất được lan sang N frame kế tiếp cùng slice. Cạnh nút có ba ô, lưu theo trình duyệt của từng bác sĩ: số ảnh lan **N** (mặc định 3, 0–10), **ngưỡng** dừng (0.8), **Tự lan** (bật). N = 0 hoặc tắt Tự lan thì chỉ học, không lan.
+
+**Bốn luật đề xuất:**
+1. Chỉ những vật thể đã vẽ trên ảnh vừa xác nhận được mang sang, giữ nguyên id; model không sinh vùng mới.
+2. Chỉ ZP, TE, ICM, BC (dạng polygon) được nắn biên, và chỉ trong dải `ADAPT_BAND_PX` quanh hình mang sang. Nhãn khác (PN, Blastomere, rect, ellipse, keypoint…) được copy nguyên.
+3. Đề xuất chỉ thay đề xuất chưa ai đụng. Gặp frame đã có vùng của bác sĩ thì dừng, không ghi đè.
+4. Chuỗi dừng khi biên mang sang và dự đoán tự do của model bất đồng (dưới ngưỡng), khi diện tích đổi ngoài [0.67, 1.5] hoặc khi ZP/TE mất lỗ. Frame dừng nhận bản copy và editor báo lý do.
+
+**Adapter theo well.** BN affine + head, khởi tạo từ production, học `ADAPT_STEPS` bước trên mọi ảnh đã xác nhận của well (tối đa 32), thống kê BN đóng băng, có rollback nếu kém đi. Adapter sống trong RAM (tối đa `ADAPT_MAX_WELLS` well, bỏ sau 2 giờ không dùng) và bị xoá khi production đổi. Mỗi đề xuất được tính cho ba nguồn (copy, production, adapter). Khi bác sĩ xác nhận ảnh đó, cả ba được chấm so với nhãn vàng, và nguồn tốt nhất trên 5 ảnh gần nhất được dùng tiếp. Job dài hạn tạm nhường GPU khi adapter đang chạy. Tầng dài hạn vẫn chỉ học nhãn đã duyệt.
+
+**Ảnh.** Backend crop 600×600 quanh các vùng trước khi đưa model. Dữ liệu timelapse cũng nên được crop sẵn quanh phôi: `python scripts/crop_timelapse_wells.py <dataset> <dataset>_crop600`, rồi dựng task bằng `scripts/timelapse_wells.py`. Mỗi well có một khung cố định cho mọi frame và slice, ghi trong `boxes.json`.
+
+**Nhật ký.** `${JOURNAL_DIR}/<project>/<task>.jsonl` ghi mỗi lần xác nhận (`gold`) và mỗi đề xuất (`propose`). Kèm theo là một `.npz` cho mỗi ảnh xác nhận (khung crop, nhãn vàng 256, đề xuất của ba nguồn), dùng để phát lại offline.
+
+**Giới hạn.** Chỉ 4 lớp TASDF được nắn biên. Lan theo thời gian, cùng slice, không lan ngược. Project phải có trong `stages.json`.
+
 ## Cấu hình (env)
 
 Khi chạy bằng Docker, mỗi biến chỉ có **một** nơi đặt:
