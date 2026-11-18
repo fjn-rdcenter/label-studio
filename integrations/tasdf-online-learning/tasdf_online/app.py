@@ -340,7 +340,7 @@ class OnlineService:
                         refined[src] = refine_object(cm, maps[src].argmax(0) == cls, self.s.band_px, ring)
                     for src, m in refined.items():
                         proposals[src][m] = cls
-                    reason = stop_reason(cm, refined[source], free_map == cls, ring, threshold)
+                    reason = stop_reason(cm, refined[source], free_map == cls, ring, threshold, self.s.boundary_tol_px)
                     res = object_result(refined[source], r, cls)
                     stop = stop or reason or (None if res else "vanished")
                     out.append(from_box([res], w, h, box)[0] if res else orig)

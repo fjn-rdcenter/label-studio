@@ -90,7 +90,7 @@ def _mean_dice(model: nn.Module, samples: list[Sample]) -> float:
 
 
 def adapt(model: nn.Module, state: WellState, prod_adapter: dict, steps: int = 3, lr: float = 1e-4,
-          max_samples: int = 32, rollback_margin: float = 0.01, seed: int = 0) -> dict:
+          max_samples: int = 32, rollback_margin: float = 0.01, seed: int = 0, micro_batch: int = 2) -> dict:
     t0 = time.time()
     batch = state.samples[-max_samples:]
     if not batch:
@@ -105,17 +105,28 @@ def adapt(model: nn.Module, state: WellState, prod_adapter: dict, steps: int = 3
             params.append(p)
     model.eval()  # BN running statistics stay frozen: only gamma/beta and the heads learn
     opt = torch.optim.AdamW(params, lr=lr)
+    device = next(model.parameters()).device
+    amp = device.type == "cuda"
+    scaler = torch.amp.GradScaler("cuda", enabled=amp)
     rng = random.Random(seed)
-    loss = torch.zeros(())
+    total = 0.0
     for _ in range(steps):
         aug = []
         for s in batch:
             xs, ys = trainer.augment(s.x[None], torch.stack([s.y, s.changed.long(), s.prior])[None], rng)
             aug.append(Sample(xs[0], ys[0, 0], ys[0, 1].bool(), ys[0, 2]))
-        loss = adapter_loss(model, prod_adapter, aug)
         opt.zero_grad(set_to_none=True)
-        loss.backward()
-        opt.step()
+        total = 0.0
+        # BN affine lives in the encoder too, so backward crosses the whole net: accumulate over micro-batches
+        # (as the long-term trainer does) or one 256x256 image set of a well can exhaust a 6 GB GPU
+        for k in range(0, len(aug), micro_batch):
+            chunk = aug[k:k + micro_batch]
+            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
+                loss = adapter_loss(model, prod_adapter, chunk) * len(chunk) / len(aug)
+            scaler.scale(loss).backward()
+            total += float(loss.detach())
+        scaler.step(opt)
+        scaler.update()
     for p in params:
         p.requires_grad_(False)
     after = _mean_dice(model, batch)
@@ -125,7 +136,7 @@ def adapt(model: nn.Module, state: WellState, prod_adapter: dict, steps: int = 3
         state.adapter = old
     else:
         state.adapter = {k: v.detach().clone() for k, v in adapter_state(model.state_dict()).items()}
-    return {"loss": float(loss.detach()), "seconds": round(time.time() - t0, 3), "reverted": reverted, "samples": len(batch)}
+    return {"loss": total, "seconds": round(time.time() - t0, 3), "reverted": reverted, "samples": len(batch)}
 
 
 def choose_source(scores: list[dict[str, float]], min_scored: int = 3, window: int = 5) -> str:

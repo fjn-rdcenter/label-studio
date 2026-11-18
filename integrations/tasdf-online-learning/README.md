@@ -83,7 +83,7 @@ Thiết kế: [`docs/superpowers/specs/2026-11-19-tasdf-well-adapter-design.md`]
 1. Chỉ những vật thể đã vẽ trên ảnh vừa xác nhận được mang sang, giữ nguyên id; model không sinh vùng mới.
 2. Chỉ ZP, TE, ICM, BC (dạng polygon) được nắn biên, và chỉ trong dải `ADAPT_BAND_PX` quanh hình mang sang. Nhãn khác (PN, Blastomere, rect, ellipse, keypoint…) được copy nguyên.
 3. Đề xuất chỉ thay đề xuất chưa ai đụng. Gặp frame đã có vùng của bác sĩ thì dừng, không ghi đè.
-4. Chuỗi dừng khi biên mang sang và dự đoán tự do của model bất đồng (dưới ngưỡng), khi diện tích đổi ngoài [0.67, 1.5] hoặc khi ZP/TE mất lỗ. Frame dừng nhận bản copy và editor báo lý do.
+4. Chuỗi dừng khi biên mang sang và dự đoán tự do của model bất đồng (dưới ngưỡng), khi diện tích đổi ngoài [0.67, 1.5] hoặc khi ZP/TE mất lỗ. Frame dừng nhận bản copy và editor báo lý do. Độ khớp biên được tính với dung sai `ADAPT_BOUNDARY_TOL` (mặc định 6 px ở 256). Trên W4 crop600 của project 38, dự đoán của model giữa hai frame liền nhau chỉ khớp 0,21–0,46 ở 2 px, và 0,67–0,91 ở 6 px.
 
 **Adapter theo well.** BN affine + head, khởi tạo từ production, học `ADAPT_STEPS` bước trên mọi ảnh đã xác nhận của well (tối đa 32), thống kê BN đóng băng, có rollback nếu kém đi. Adapter sống trong RAM (tối đa `ADAPT_MAX_WELLS` well, bỏ sau 2 giờ không dùng) và bị xoá khi production đổi. Mỗi đề xuất được tính cho ba nguồn (copy, production, adapter). Khi bác sĩ xác nhận ảnh đó, cả ba được chấm so với nhãn vàng, và nguồn tốt nhất trên 5 ảnh gần nhất được dùng tiếp. Job dài hạn tạm nhường GPU khi adapter đang chạy. Tầng dài hạn vẫn chỉ học nhãn đã duyệt.
 

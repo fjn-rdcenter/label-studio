@@ -21,3 +21,4 @@ def test_save_arrays_is_loadable_with_url_names(tmp_path):
 def test_settings_defaults():
     s = Settings.from_env()
     assert (s.crop_size, s.band_px, s.adapt_steps, s.adapt_lr, s.adapt_max_wells) == (600, 8, 3, 1e-4, 16)
+    assert s.boundary_tol_px == 6

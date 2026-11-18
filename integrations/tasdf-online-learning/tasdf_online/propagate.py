@@ -82,17 +82,18 @@ def boundary_f(a: np.ndarray, b: np.ndarray, tol_px: int = 2) -> float:
     return 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
 
 
-def stop_reason(carried: np.ndarray, refined: np.ndarray, free: np.ndarray, ring: bool, threshold: float) -> str | None:
+def stop_reason(carried: np.ndarray, refined: np.ndarray, free: np.ndarray, ring: bool, threshold: float,
+                tol_px: int = 2) -> str | None:
     if not refined.any():
         return "vanished"
     ratio = refined.sum() / max(int(carried.sum()), 1)
     if ratio < 0.67 or ratio > 1.5:
         return "area"
-    if ring and not _has_hole(refined):
+    if ring and _has_hole(carried) and not _has_hole(refined):  # only a hole that existed can be lost
         return "ring"
     n, lab = cv2.connectedComponents(free.astype(np.uint8))
     touching = np.isin(lab, np.unique(lab[carried & free]))
-    if boundary_f(carried, free & touching) < threshold:
+    if boundary_f(carried, free & touching, tol_px) < threshold:
         return "disagree"
     return None
 

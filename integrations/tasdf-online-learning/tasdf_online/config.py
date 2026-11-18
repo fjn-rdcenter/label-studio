@@ -72,6 +72,7 @@ class Settings:
     adapt_steps: int = 3
     adapt_lr: float = 1e-4
     adapt_max_wells: int = 16
+    boundary_tol_px: int = 6
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -121,6 +122,9 @@ class Settings:
             adapt_steps=_int("ADAPT_STEPS", 3),
             adapt_lr=_float("ADAPT_LR", 1e-4),
             adapt_max_wells=_int("ADAPT_MAX_WELLS", 16),
+            # px at 256 within which carried and predicted boundaries count as agreeing; 2 px stopped every chain
+            # on project 38 (adjacent frames agreed only 0.21-0.46), 6 px gave 0.67-0.91
+            boundary_tol_px=_int("ADAPT_BOUNDARY_TOL", 6),
         )
 
 

@@ -47,7 +47,9 @@ def test_stop_reasons_in_priority_order():
     c = disk(60)
     assert stop_reason(c, np.zeros_like(c), c, False, 0.8) == "vanished"
     assert stop_reason(c, disk(90), c, False, 0.8) == "area"
-    assert stop_reason(c, c, c, True, 0.8) == "ring"
+    ring = disk(80) & ~disk(40)
+    assert stop_reason(ring, disk(80), ring, True, 0.8) == "ring"  # the carried ring lost its hole
+    assert stop_reason(c, c, c, True, 0.8) is None  # a ring class drawn without a hole has none to lose
     assert stop_reason(c, c, disk(60, (150, 128)), False, 0.8) == "disagree"
     assert stop_reason(c, c, c, False, 0.8) is None
 
@@ -65,3 +67,9 @@ def test_boundary_f_of_a_mask_filling_the_frame_is_finite():
     full = np.ones((256, 256), bool)
     assert boundary_f(full, full) == 1.0
     assert 0.0 <= boundary_f(full, disk(60)) < 0.5
+
+
+def test_stop_tolerance_is_a_parameter():
+    c, shifted = disk(60), disk(60, (132, 128))  # 4 px shift
+    assert stop_reason(c, c, shifted, False, 0.8, tol_px=2) == "disagree"
+    assert stop_reason(c, c, shifted, False, 0.8, tol_px=6) is None

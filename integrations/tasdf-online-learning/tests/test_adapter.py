@@ -36,6 +36,22 @@ def test_loss_goes_down_on_the_well():
     assert float(adapter_loss(m, prod, st.samples)) < l0
 
 
+def test_adapt_trains_in_micro_batches_to_bound_gpu_memory():
+    m, prod, st = setup()
+    st.samples = st.samples * 5
+    seen = []
+    forward = m.forward
+
+    def spy(x, *a, **k):
+        if torch.is_grad_enabled():
+            seen.append(len(x))
+        return forward(x, *a, **k)
+
+    m.forward = spy
+    adapt(m, st, prod, steps=1, rollback_margin=1.0)
+    assert seen and max(seen) <= 2 and sum(seen) == 5
+
+
 def test_rollback_keeps_old_adapter(monkeypatch):
     import tasdf_online.adapter as A
     m, prod, st = setup()
