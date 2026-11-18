@@ -753,7 +753,8 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
         tasks = payload.get("tasks")
         if not isinstance(tasks, list) or not tasks:
             return jsonify(error="tasks must be a non-empty list"), 400
-        ctx = payload.get("context")
+        # Label Studio sends the context under params (api_connector._prep_prediction_req)
+        ctx = payload.get("context") or (payload.get("params") or {}).get("context")
         if isinstance(ctx, dict) and ctx.get("action") == "propagate":
             if len(tasks) != 1 or not isinstance(tasks[0], dict):
                 raise ValueError("propagate needs exactly one task")

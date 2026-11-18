@@ -304,9 +304,9 @@ class MLBackend(models.Model):
             return []
 
     def _get_predictions_from_ml_backend(
-        self, serialized_tasks: List[Dict], label_config=None, errors: List[str] = None
+        self, serialized_tasks: List[Dict], label_config=None, errors: List[str] = None, context=None
     ) -> List[Dict]:
-        result = self.api.make_predictions(serialized_tasks, self.project, label_config=label_config)
+        result = self.api.make_predictions(serialized_tasks, self.project, context=context, label_config=label_config)
 
         # response validation
         if result.is_error:
@@ -353,6 +353,8 @@ class MLBackend(models.Model):
                         'score': r.get('score'),
                         'model_version': r.get('model_version', self.model_version),
                         'project': task['project'],
+                        # per-request meta of a propagation call; predict_single_task hands it back, never stores it
+                        **({'propagation': r['propagation']} if 'propagation' in r else {}),
                     }
                 )
         return predictions
@@ -418,7 +420,14 @@ class MLBackend(models.Model):
         task_ser['data'] = {'image': url}
         return [task_ser], ElementTree.tostring(view, encoding='unicode')
 
-    def predict_single_task(self, task, update_project_version=False, force=False, image=None):
+    def predict_single_task(self, task, update_project_version=False, force=False, image=None, context=None):
+        if context is not None:
+            # the backend fetches gold.url with its own token: only images of this task may be named
+            if not isinstance(context, dict) or not image:
+                raise ValidationError({'context': 'context must be an object and needs an image'})
+            gold = context.get('gold')
+            if gold is not None and not (isinstance(gold, dict) and gold.get('url') in _strings(task.data)):
+                raise ValidationError({'context': 'gold.url must point to an image of this task'})
         self.update_state()
         if self.not_ready:
             return {'errors': [f'ML backend {self.title} is not ready ({self.get_state_display()})']}
@@ -434,12 +443,14 @@ class MLBackend(models.Model):
             if (self.model_version and not force)
             else None
         )
+        propagation = None
         with conditional_atomic(predicate=db_is_not_sqlite):
             if instance is None:
                 errors = []
-                predictions = self._get_predictions_from_ml_backend(tasks_ser, label_config, errors)
+                predictions = self._get_predictions_from_ml_backend(tasks_ser, label_config, errors, context=context)
                 if not predictions:
                     return {'errors': errors or [f'No prediction returned from {self.title}']}
+                propagation = predictions[0].pop('propagation', None)
                 if image and image.get('item_index') is not None:
                     for r in predictions[0]['result']:
                         r['item_index'] = image['item_index']
@@ -451,7 +462,10 @@ class MLBackend(models.Model):
             if update_project_version and instance.model_version and self.project.model_version != instance.model_version:
                 self.project.model_version = instance.model_version
                 self.project.save(update_fields=['model_version'])
-        return {'data': PredictionSerializer(instance).data}
+        response = {'data': PredictionSerializer(instance).data}
+        if propagation is not None:
+            response['propagation'] = propagation
+        return response
 
     def interactive_annotating(self, task, context=None, user=None):
         result = {}

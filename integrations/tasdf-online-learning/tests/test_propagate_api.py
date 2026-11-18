@@ -93,6 +93,15 @@ def test_bad_context_is_400(client):
     assert two.status_code == 400
 
 
+def test_context_sent_under_params_like_label_studio_does(client):
+    c, _, _ = client
+    ctx = {"action": "propagate", "carried": [PN_RECT], "distance": 1, "threshold": 0.0}
+    body = c.post("/predict", json={"project": 7, "label_config": CONFIG,
+                                    "tasks": [{"id": 5, "data": {"image": "/data/b.jpg"}}],
+                                    "params": {"login": None, "password": None, "context": ctx}}).get_json()
+    assert body["results"][0]["result"] == [PN_RECT] and "propagation" in body["results"][0]
+
+
 def test_journal_written(client):
     c, _, s = client
     call(c, "/data/b.jpg", {"carried": [ZP_RING], "distance": 1, "gold": {"url": "/data/a.jpg", "results": [ZP_RING]}})

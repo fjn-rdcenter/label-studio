@@ -473,3 +473,51 @@ def test_backend_error_message_reaches_the_user(business_client):
     assert debug.status_code == 200  # was a 500: Response(**None)
     assert debug.json()['status'] == 400
     assert 'label config needs a PolygonLabels tag' in debug.json()['error_message']
+
+
+@pytest.mark.django_db
+def test_smart_prediction_forwards_context_and_returns_propagation(business_client):
+    backend, task = _timelapse_backend(business_client)
+    url = '/data/local-files/?d=w/1/1.jpg'
+    gold = {'url': '/data/local-files/?d=w/0/1.jpg', 'results': []}
+    ctx = {'action': 'propagate', 'carried': [], 'distance': 1, 'threshold': 0.8, 'gold': gold}
+    meta = {'stop': None, 'source': 'production', 'distance': 1, 'adapt': None, 'scores': None}
+    with requests_mock.Mocker() as m:
+        register_ml_backend_mock(
+            m, url=backend.url, predictions={'results': [{'result': [], 'score': 0.5, 'propagation': meta}]}
+        )
+        response = business_client.post(
+            f'/api/ml/{backend.id}/predict/test',
+            data=json.dumps(
+                {'task': task.id, 'image': {'url': url, 'to_name': 'timelapse_1', 'item_index': 0}, 'context': ctx}
+            ),
+            content_type='application/json',
+        )
+        sent = [r.json() for r in m.request_history if r.path == '/predict'][-1]
+    assert response.status_code == 200, response.content
+    assert sent['params']['context'] == ctx  # LS ML protocol carries context under params
+    assert response.json()['propagation'] == meta
+    assert 'propagation' not in response.json()['data']
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    'body',
+    [
+        {'context': {'action': 'propagate', 'gold': {'url': 'http://evil.example/x.jpg', 'results': []}}},
+        {'context': 'not-a-dict'},
+        {'context': {'action': 'propagate'}, 'no_image': True},
+    ],
+)
+def test_smart_prediction_rejects_bad_context(business_client, body):
+    backend, task = _timelapse_backend(business_client)
+    data = {'task': task.id, 'context': body['context']}
+    if not body.get('no_image'):
+        data['image'] = {'url': '/data/local-files/?d=w/1/1.jpg', 'to_name': 'timelapse_1', 'item_index': 0}
+    with requests_mock.Mocker() as m:
+        register_ml_backend_mock(m, url=backend.url)
+        response = business_client.post(
+            f'/api/ml/{backend.id}/predict/test', data=json.dumps(data), content_type='application/json'
+        )
+        assert not [r for r in m.request_history if r.path == '/predict']
+    assert response.status_code == 400
