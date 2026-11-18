@@ -454,6 +454,14 @@ class MLBackend(models.Model):
                 if image and image.get('item_index') is not None:
                     for r in predictions[0]['result']:
                         r['item_index'] = image['item_index']
+                if image:
+                    # a propagated region still names the frame it came from: store it on the pointed frame,
+                    # with its control renamed the way Repeater names <control>-<frame>
+                    frame = re.search(r'(\d+)$', image['to_name'])
+                    for r in predictions[0]['result']:
+                        r['to_name'] = image['to_name']
+                        if frame and isinstance(r.get('from_name'), str):
+                            r['from_name'] = re.sub(r'\d+$', frame.group(1), r['from_name'])
                 # no delete of older predictions: the annotation open in the editor may reference one as parent_prediction
                 prediction_ser = PredictionSerializer(data=predictions[0])
                 prediction_ser.is_valid(raise_exception=True)

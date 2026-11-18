@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 import time
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 import numpy as np
@@ -20,12 +20,16 @@ from .ls_format import IGNORE
 SOURCES = ("production", "adapter", "copy")  # tie order: prefer the shared model, then the well's own
 
 
+MAX_SAMPLES = 32  # per well: memory and adapt time both grow with it
+
+
 @dataclass
 class Sample:
     x: torch.Tensor  # (1, 256, 256) float
-    y: torch.Tensor  # (256, 256) int64, IGNORE where the physician drew nothing
+    y: torch.Tensor  # (256, 256) class map (uint8 in memory), IGNORE where the physician drew nothing
     changed: torch.Tensor  # (256, 256) bool: pixels the physician changed from the proposal
-    prior: torch.Tensor  # (256, 256) int64: production argmax
+    prior: torch.Tensor  # (256, 256) production argmax (uint8 in memory)
+    url: str = ""  # the confirmed image; confirming it again replaces this sample
 
 
 @dataclass
@@ -35,6 +39,7 @@ class WellState:
     proposals: dict[str, dict[str, np.ndarray]]  # image url -> {source: 256 class map}
     scores: list[dict[str, float]]
     last_used: float
+    used: dict[str, str] = field(default_factory=dict)  # image url -> source its proposal was taken from
 
 
 class WellAdapters:
@@ -66,9 +71,9 @@ def adapter_loss(model: nn.Module, prod_adapter: dict, batch: list[Sample], w_ch
                  w_keep: float = 0.1, w_l2: float = 1e-3) -> torch.Tensor:
     device = next(model.parameters()).device
     x = torch.stack([s.x for s in batch]).to(device)
-    y = torch.stack([s.y for s in batch]).to(device)
+    y = torch.stack([s.y for s in batch]).to(device).long()
     weight = 1 + w_changed * torch.stack([s.changed for s in batch]).to(device).float()
-    prior = torch.stack([s.prior for s in batch]).to(device)
+    prior = torch.stack([s.prior for s in batch]).to(device).long()
     labeled = y != IGNORE
     (p1, _), (p2, _) = model(x, branch="both")
     total = torch.zeros((), device=device)
@@ -113,7 +118,7 @@ def adapt(model: nn.Module, state: WellState, prod_adapter: dict, steps: int = 3
     for _ in range(steps):
         aug = []
         for s in batch:
-            xs, ys = trainer.augment(s.x[None], torch.stack([s.y, s.changed.long(), s.prior])[None], rng)
+            xs, ys = trainer.augment(s.x[None], torch.stack([s.y.long(), s.changed.long(), s.prior.long()])[None], rng)
             aug.append(Sample(xs[0], ys[0, 0], ys[0, 1].bool(), ys[0, 2]))
         opt.zero_grad(set_to_none=True)
         total = 0.0

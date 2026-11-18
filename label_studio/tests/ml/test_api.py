@@ -501,6 +501,25 @@ def test_smart_prediction_forwards_context_and_returns_propagation(business_clie
 
 
 @pytest.mark.django_db
+def test_smart_prediction_stores_regions_on_the_pointed_frame(business_client):
+    backend, task = _timelapse_backend(business_client)
+    carried = {'id': 'zp1', 'from_name': 'pl-0', 'to_name': 'timelapse_0', 'type': 'polygonlabels',
+               'value': {'points': [[1, 1], [5, 1], [5, 5]], 'polygonlabels': ['ZP']}}
+    with requests_mock.Mocker() as m:
+        register_ml_backend_mock(
+            m, url=backend.url, predictions={'results': [{'result': [carried], 'score': 1, 'propagation': {}}]}
+        )
+        response = business_client.post(
+            f'/api/ml/{backend.id}/predict/test',
+            data=json.dumps({'task': task.id, 'image': {'url': '/data/local-files/?d=w/1/2.jpg',
+                                                         'to_name': 'timelapse_1', 'item_index': 1}}),
+            content_type='application/json',
+        )
+    r = response.json()['data']['result'][0]
+    assert (r['to_name'], r['from_name'], r['item_index']) == ('timelapse_1', 'pl-1', 1)
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     'body',
     [

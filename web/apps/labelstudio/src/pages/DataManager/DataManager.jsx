@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { generatePath, useHistory } from "react-router";
 import { NavLink } from "react-router-dom";
 import { Spinner } from "../../components";
@@ -17,7 +17,7 @@ import { ExportPage } from "../ExportPage/ExportPage";
 import { APIConfig } from "./api-config";
 import { ToastContext } from "../../components/Toast/Toast";
 import { FF_OPTIC_2, isFF } from "../../utils/feature-flags";
-import { acceptTarget, frameTarget, loadSettings, mergeProposal, onTarget, saveSettings } from "./propagation";
+import { guarded, loadSettings, runChain, saveSettings } from "./propagation";
 
 import "./DataManager.styl";
 
@@ -377,62 +377,37 @@ DataManagerPage.context = ({ dmRef }) => {
       toast?.show?.({ message: "Hãy mở một ảnh trong annotation để xác nhận", type: "error" });
       return;
     }
-    const current = () => annotation.serializeAnnotation() || [];
-    const carriedFrom = current().filter((r) => onTarget(r, target));
-    if (!carriedFrom.length) {
-      toast?.show?.({ message: "Ảnh này chưa có vùng nào để học", type: "error" });
-      return;
-    }
     const backend = await findBackend();
     if (!backend?.id) {
       toast?.show?.({ message: "Chưa có ML Backend dự đoán cả ảnh (non-interactive) cho dự án này", type: "error" });
       return;
     }
     const { n, threshold, auto } = propSettings;
-    applyResults(annotation, acceptTarget(current(), target));
-    const gold = { url: target.url, results: carriedFrom };
-    const call = (image, context) =>
-      api.callApi("predictWithML", {
-        params: { pk: backend.id },
-        body: { task: task.id, force: true, image, context: { action: "propagate", threshold, ...context } },
-      });
+    const images = [...(annotation.names?.values?.() ?? [])].filter((t) => t.type === "image");
+    const frames = images
+      .map((tag) => ({ to_name: tag.name, urls: tag.parsedValueList ?? [tag.parsedValue] }))
+      .sort((a, b) => Number(a.to_name.match(/(\d+)$/)?.[1] ?? 0) - Number(b.to_name.match(/(\d+)$/)?.[1] ?? 0));
     setPropagating(true);
     try {
-      if (!auto || n === 0) {
-        const resp = await call(target, { carried: carriedFrom, distance: 0, gold });
-        if (resp?.errors?.length) throw new Error(resp.errors.join("; "));
-        toast?.show?.({ message: "Đã học từ ảnh này", type: "info" });
-        return;
+      const { filled, note } = await runChain({
+        current: () => annotation.serializeAnnotation() || [],
+        apply: (results) => applyResults(annotation, results),
+        call: (image, context) =>
+          api.callApi("predictWithML", {
+            params: { pk: backend.id },
+            body: { task: task.id, force: true, image, context: { action: "propagate", threshold, ...context } },
+          }),
+        frames,
+        target,
+        n,
+        auto,
+      });
+      if (note === "no_regions") {
+        toast?.show?.({ message: "Ảnh này chưa có vùng nào để học", type: "error" });
+      } else {
+        const what = auto && n > 0 ? `đã đề xuất cho ${filled} frame` : "đã học từ ảnh này";
+        toast?.show?.({ message: `Xong ảnh: ${what}${note ? `, ${note}` : ""}`, type: "info" });
       }
-      const images = [...(annotation.names?.values?.() ?? [])].filter((t) => t.type === "image");
-      const frames = images
-        .map((tag) => ({ to_name: tag.name, urls: tag.parsedValueList ?? [tag.parsedValue] }))
-        .sort((a, b) => Number(a.to_name.match(/(\d+)$/)?.[1] ?? 0) - Number(b.to_name.match(/(\d+)$/)?.[1] ?? 0));
-      let carried = carriedFrom;
-      let filled = 0;
-      let note = "";
-      for (let k = 1; k <= n; k++) {
-        const next = frameTarget(frames, target, k);
-        if (!next) {
-          note = "đã tới frame cuối";
-          break;
-        }
-        if (mergeProposal(current(), next, []) === null) {
-          note = `gặp ảnh đã gán ở ${next.to_name}`;
-          break;
-        }
-        const resp = await call(next, { carried, distance: k, ...(k === 1 ? { gold } : {}) });
-        if (resp?.errors?.length) throw new Error(resp.errors.join("; "));
-        const result = (resp?.data || resp)?.result || [];
-        applyResults(annotation, mergeProposal(current(), next, result));
-        filled += 1;
-        carried = result;
-        if (resp?.propagation?.stop) {
-          note = `dừng ở ${next.to_name}: ${resp.propagation.stop}`;
-          break;
-        }
-      }
-      toast?.show?.({ message: `Đã đề xuất cho ${filled} frame${note ? `, ${note}` : ""}`, type: "info" });
     } catch (error) {
       toast?.show?.({ message: `Xong ảnh thất bại: ${error.message}`, type: "error" });
     } finally {
@@ -440,17 +415,21 @@ DataManagerPage.context = ({ dmRef }) => {
     }
   }, [dmRef, api, toast, findBackend, propSettings]);
 
+  const frameDoneState = useRef({ busy: false }).current;
+  const runFrameDoneOnce = useMemo(() => guarded(runFrameDone, frameDoneState), [runFrameDone, frameDoneState]);
+
   useEffect(() => {
+    if (mode === "explorer") return undefined; // only while an annotation is open
     const onKey = (event) => {
       if (!event.shiftKey || event.key !== "Enter" || event.repeat) return;
       const el = document.activeElement;
       if (el?.closest?.("input, textarea, select, [contenteditable=''], [contenteditable='true']")) return;
       event.preventDefault();
-      runFrameDone();
+      runFrameDoneOnce();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [runFrameDone]);
+  }, [runFrameDoneOnce, mode]);
 
   useEffect(() => {
     window.__runSmartPrediction = runSmartPrediction;
@@ -532,7 +511,7 @@ DataManagerPage.context = ({ dmRef }) => {
           <Button
             size="compact"
             disabled={propagating}
-            onClick={runFrameDone}
+            onClick={runFrameDoneOnce}
             title="Xác nhận ảnh này và lan đề xuất sang các frame sau (Shift+Enter)"
           >
             {propagating ? "Đang lan..." : "Xong ảnh"}

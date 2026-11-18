@@ -102,6 +102,50 @@ def test_context_sent_under_params_like_label_studio_does(client):
     assert body["results"][0]["result"] == [PN_RECT] and "propagation" in body["results"][0]
 
 
+def test_reconfirming_an_image_neither_duplicates_its_sample_nor_its_score(client):
+    c, svc, _ = client
+    gold_b = {"url": "/data/b.jpg", "results": [ZP_RING]}
+    call(c, "/data/b.jpg", {"carried": [ZP_RING], "distance": 1, "gold": {"url": "/data/a.jpg", "results": [ZP_RING]}})
+    call(c, "/data/c.jpg", {"carried": [ZP_RING], "distance": 1, "gold": gold_b})
+    call(c, "/data/c.jpg", {"carried": [ZP_RING], "distance": 1, "gold": gold_b})
+    state = svc.wells.get((7, 5), dict)
+    assert len(state.samples) == 2 and len(state.scores) == 1
+
+
+def test_well_memory_keeps_the_32_newest_samples(client, monkeypatch):
+    c, svc, _ = client
+    monkeypatch.setattr(app_module, "adapt", lambda *a, **k: {"samples": 0})
+    for i in range(40):
+        call(c, "/data/x.jpg", {"carried": [], "distance": 1, "gold": {"url": f"/data/{i}.jpg", "results": [ZP_RING]}})
+    state = svc.wells.get((7, 5), dict)
+    assert len(state.samples) == 32 and state.samples[-1].url == "/data/39.jpg"
+    assert state.samples[0].y.dtype == torch.uint8
+
+
+def test_copy_source_returns_the_carried_object_untouched(client):
+    c, svc, _ = client
+    svc.wells.get((7, 5), dict).scores = [{"copy": 1.0, "production": 0.0, "adapter": 0.0}] * 3
+    body = call(c, "/data/b.jpg", {"carried": [ZP_RING], "distance": 1}).get_json()["results"][0]
+    assert body["propagation"]["source"] == "copy" and body["result"] == [ZP_RING]
+
+
+def test_refined_polygons_are_traced_at_the_crop_resolution(client, monkeypatch):
+    c, _, _ = client
+    shapes = []
+    real = app_module.object_result
+    monkeypatch.setattr(app_module, "object_result", lambda m, *a: shapes.append(m.shape) or real(m, *a))
+    call(c, "/data/b.jpg", {"carried": [ZP_RING], "distance": 1})
+    assert shapes == [(600, 600)]
+
+
+def test_adapter_does_not_train_while_a_long_term_job_holds_the_gpu(client):
+    c, svc, _ = client
+    with svc.train_lock:
+        body = call(c, "/data/b.jpg", {"carried": [ZP_RING], "distance": 1,
+                                        "gold": {"url": "/data/a.jpg", "results": [ZP_RING]}}).get_json()
+    assert body["results"][0]["propagation"]["adapt"] == {"skipped": "training"}
+
+
 def test_journal_written(client):
     c, _, s = client
     call(c, "/data/b.jpg", {"carried": [ZP_RING], "distance": 1, "gold": {"url": "/data/a.jpg", "results": [ZP_RING]}})

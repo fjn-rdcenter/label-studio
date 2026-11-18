@@ -18,6 +18,7 @@ import time
 import uuid
 from pathlib import Path
 
+import cv2
 import numpy as np
 import requests
 import torch
@@ -25,7 +26,7 @@ from defusedxml import ElementTree
 from flask import Flask, jsonify, request
 
 from . import journal, learner, trainer
-from .adapter import SOURCES, Sample, WellAdapters, adapt, choose_source
+from .adapter import MAX_SAMPLES, SOURCES, Sample, WellAdapters, adapt, choose_source
 from .bundle_registry import BASE, BundleRegistry, adapter_state
 from .config import Settings, load_stages, resolve_device, stage_of
 from .crop import crop_box, crop_input, from_box, to_box
@@ -286,18 +287,28 @@ class OnlineService:
         y = annotation_target(to_box(results, w, h, box))
         prior = self._probs(x, stage, None).argmax(0)
         scores, changed = None, np.zeros(y.shape, bool)
-        shown = state.proposals.get(url)
+        # popped: confirming the same image again must not score it twice
+        shown, used = state.proposals.pop(url, None), state.used.pop(url, "production")
         if shown:
-            used = choose_source(state.scores)  # the source the proposal on this image was taken from
             scores = {src: trainer.mean_dice_ignore(m, y) for src, m in shown.items()}
             state.scores.append(scores)
             changed = (shown[used] != y) & (y != IGNORE)
         stats = None
         if any(object_class(r) is not None for r in results):  # nothing the model knows: nothing to learn
-            state.samples.append(Sample(torch.from_numpy(x)[None], torch.from_numpy(y.astype(np.int64)),
-                                        torch.from_numpy(changed), torch.from_numpy(prior.astype(np.int64))))
-            stats = adapt(self.adapt_model, state, self.adapters[stage], steps=self.s.adapt_steps, lr=self.s.adapt_lr)
-        journal.append(self.s.journal_dir, key[0], key[1], {"event": "gold", "url": url, "scores": scores, "adapt": stats})
+            sample = Sample(torch.from_numpy(x)[None], torch.from_numpy(y.astype(np.uint8)), torch.from_numpy(changed),
+                            torch.from_numpy(prior.astype(np.uint8)), url)
+            state.samples = [s for s in state.samples if s.url != url] + [sample]
+            del state.samples[:-MAX_SAMPLES]
+            if self.train_lock.locked():
+                # a long-term job holds most of a 6 GB GPU: propose with what the well already learned
+                stats = {"skipped": "training"}
+            else:
+                if self.device.type == "cuda":
+                    torch.cuda.empty_cache()
+                stats = adapt(self.adapt_model, state, self.adapters[stage], steps=self.s.adapt_steps,
+                              lr=self.s.adapt_lr)
+        journal.append(self.s.journal_dir, key[0], key[1],
+                       {"event": "gold", "url": url, "source": used, "scores": scores, "adapt": stats})
         journal.save_arrays(self.s.journal_dir, key[0], key[1], url, box=np.asarray(box), gold=y,
                             **{src: m for src, m in (shown or {}).items()})
         return scores, stats
@@ -341,10 +352,17 @@ class OnlineService:
                     for src, m in refined.items():
                         proposals[src][m] = cls
                     reason = stop_reason(cm, refined[source], free_map == cls, ring, threshold, self.s.boundary_tol_px)
-                    res = object_result(refined[source], r, cls)
+                    if source == "copy":  # re-tracing a copy only loses detail along the chain
+                        stop = stop or reason
+                        out.append(orig)
+                        continue
+                    # trace at the crop's pixel size, as Smart Prediction traces at the original size
+                    big = cv2.resize(refined[source].astype(np.uint8), (box[2] - box[0], box[3] - box[1]),
+                                     interpolation=cv2.INTER_NEAREST) > 0
+                    res = object_result(big, r, cls)
                     stop = stop or reason or (None if res else "vanished")
                     out.append(from_box([res], w, h, box)[0] if res else orig)
-                state.proposals[url] = proposals
+                state.proposals[url], state.used[url] = proposals, source
                 if stop:  # keep the carried copy on this image and let the physician look
                     out = list(carried)
                 journal.append(self.s.journal_dir, key[0], key[1],
