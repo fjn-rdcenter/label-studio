@@ -24,11 +24,14 @@ import torch
 from defusedxml import ElementTree
 from flask import Flask, jsonify, request
 
-from . import learner, trainer
+from . import journal, learner, trainer
+from .adapter import SOURCES, Sample, WellAdapters, adapt, choose_source
 from .bundle_registry import BASE, BundleRegistry, adapter_state
 from .config import Settings, load_stages, resolve_device, stage_of
+from .crop import crop_box, crop_input, from_box, to_box
 from .dashboard import create_dashboard_blueprint
-from .ls_format import CLASS_NAMES, NAME_TO_CLASS, fetch_image, mask_to_results
+from .ls_format import CLASS_NAMES, IGNORE, NAME_TO_CLASS, annotation_target, fetch_gray, fetch_image, mask_to_results
+from .propagate import RING_CLASSES, object_class, object_mask, object_result, refine_object, stop_reason
 from .schedule import Cron
 
 log = logging.getLogger("tasdf_online")
@@ -73,6 +76,23 @@ def ls_project_tasks(url: str, token: str, timeout: float, pid: int):
         resp.raise_for_status()
         yield from resp.json()
         page += 1
+
+
+def _propagation_context(ctx: dict) -> tuple[list[dict], int, float, dict | None]:
+    """Validate the editor's propagate context -> (carried, distance, threshold, gold). /predict has no auth."""
+    carried, distance, threshold, gold = ctx.get("carried"), ctx.get("distance"), ctx.get("threshold", 0.8), ctx.get("gold")
+    if not isinstance(carried, list) or not all(isinstance(r, dict) for r in carried):
+        raise ValueError("context.carried must be a list of results")
+    if isinstance(distance, bool) or not isinstance(distance, int) or distance < 0:
+        raise ValueError("context.distance must be a non-negative integer")
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+        raise ValueError("context.threshold must be a number")
+    if gold is not None and not (isinstance(gold, dict) and isinstance(gold.get("url"), str)
+                                 and isinstance(gold.get("results", []), list)):
+        raise ValueError("context.gold must be {url, results}")
+    if gold is not None:
+        gold = {"url": gold["url"], "results": [r for r in gold.get("results", []) if isinstance(r, dict)]}
+    return carried, distance, min(max(float(threshold), 0.0), 1.0), gold
 
 
 def _sha256(path: str) -> str:
@@ -171,6 +191,10 @@ class OnlineService:
         self.telemetry: dict = {"status": "idle", "jobs": [], "webhook_events": 0}
         self.cron = Cron(s.train_cron) if s.train_cron.strip() else None  # bad expression: fail at startup
         self.telemetry["schedule"] = {"cron": s.train_cron or None, "next_run": self.next_run()}
+        # short-term tier: one adapter per open well; a long-term job yields the GPU while `interactive` is set
+        self.wells = WellAdapters(s.adapt_max_wells)
+        self.adapt_lock = threading.Lock()
+        self.interactive = threading.Event()
         self._serve(self.registry.production)
         self._baseline_metrics()
 
@@ -186,8 +210,12 @@ class OnlineService:
         teacher = self.model_for(bundle, stages[0])
         adapters = {st: {k: v.to(self.device) for k, v in adapter_state(self.registry.state_for(bundle, st)).items()}
                     for st in stages}
+        adapt_model = self.model_for(bundle, stages[0])  # well adapters are loaded into this copy, never into teacher
         with self.lock:
             self.teacher, self.adapters, self.serving_bundle, self.serving_stage = teacher, adapters, bundle, stages[0]
+        with self.adapt_lock:
+            self.adapt_model = adapt_model
+            self.wells.clear()  # every well adapter started from the old production
         gc.collect()
 
     def _use_stage(self, stage: str) -> None:
@@ -234,6 +262,97 @@ class OnlineService:
         full = torch.nn.functional.interpolate(probs[:1].float(), size=(h, w), mode="bilinear", align_corners=False)
         result = mask_to_results(full[0].argmax(0).numpy().astype(np.uint8), w, h, label[0], label[1], label[3])
         return {"result": result, "score": score, "model_version": version}
+
+    # ---- short-term tier: "Done image" -> learn the well, propagate to the next frames ----------
+    def _probs(self, x: np.ndarray, stage: str, adapter: dict | None) -> np.ndarray:
+        """(C, 256, 256) class probabilities of production, or of production with a well adapter."""
+        xt = torch.from_numpy(x)[None, None]
+        if adapter is None:
+            with self.lock:
+                self._use_stage(stage)
+                probs, _ = learner.predict_probs(self.teacher, xt)
+        else:
+            self.adapt_model.load_state_dict(adapter, strict=False)
+            probs, _ = learner.predict_probs(self.adapt_model, xt)
+        return probs[0].numpy()
+
+    def _learn_gold(self, state, gold: dict, label: tuple, stage: str, key: tuple[int, int]):
+        """Score the proposals once shown on the confirmed image, store it as a sample, adapt the well."""
+        results, url = gold["results"], gold["url"]
+        gray = fetch_gray(self.s.ls_url, self.s.ls_token, url, self.s.request_timeout)
+        h, w = gray.shape
+        box = crop_box(results, w, h, self.s.crop_size)
+        x = crop_input(gray, box)
+        y = annotation_target(to_box(results, w, h, box))
+        prior = self._probs(x, stage, None).argmax(0)
+        scores, changed = None, np.zeros(y.shape, bool)
+        shown = state.proposals.get(url)
+        if shown:
+            used = choose_source(state.scores)  # the source the proposal on this image was taken from
+            scores = {src: trainer.mean_dice_ignore(m, y) for src, m in shown.items()}
+            state.scores.append(scores)
+            changed = (shown[used] != y) & (y != IGNORE)
+        stats = None
+        if any(object_class(r) is not None for r in results):  # nothing the model knows: nothing to learn
+            state.samples.append(Sample(torch.from_numpy(x)[None], torch.from_numpy(y.astype(np.int64)),
+                                        torch.from_numpy(changed), torch.from_numpy(prior.astype(np.int64))))
+            stats = adapt(self.adapt_model, state, self.adapters[stage], steps=self.s.adapt_steps, lr=self.s.adapt_lr)
+        journal.append(self.s.journal_dir, key[0], key[1], {"event": "gold", "url": url, "scores": scores, "adapt": stats})
+        journal.save_arrays(self.s.journal_dir, key[0], key[1], url, box=np.asarray(box), gold=y,
+                            **{src: m for src, m in (shown or {}).items()})
+        return scores, stats
+
+    def propagate(self, task: dict, label: tuple, stage: str, ctx: dict) -> dict:
+        label = label or parse_label_config(None)
+        carried, distance, threshold, gold = _propagation_context(ctx)
+        key = (int(str(task.get("project") or 0).split(".")[0]), int(task["id"]))
+        version = self.version_for(stage)
+        with self.adapt_lock:
+            self.interactive.set()
+            try:
+                prod_adapter = self.adapters[stage]
+                state = self.wells.get(key, lambda: {k: v.clone() for k, v in prod_adapter.items()})
+                scores = stats = None
+                if gold and gold["results"]:
+                    scores, stats = self._learn_gold(state, gold, label, stage, key)
+                meta = {"distance": distance, "adapt": stats, "scores": scores, "source": choose_source(state.scores)}
+                if not carried:
+                    return {"result": [], "score": 0.0, "model_version": version,
+                            "propagation": {"stop": "no_objects", **meta}}
+                url = task["data"][label[2]]
+                gray = fetch_gray(self.s.ls_url, self.s.ls_token, url, self.s.request_timeout)
+                h, w = gray.shape
+                box = crop_box(carried, w, h, self.s.crop_size)
+                x = crop_input(gray, box)
+                maps = {"production": self._probs(x, stage, None), "adapter": self._probs(x, stage, state.adapter)}
+                source = meta["source"]
+                free_map = maps["adapter" if source == "adapter" else "production"].argmax(0)
+                proposals = {src: np.zeros((x.shape[0], x.shape[1]), np.uint8) for src in SOURCES}
+                out, stop = [], None
+                for orig, r in zip(carried, to_box(carried, w, h, box)):
+                    cls = object_class(r)
+                    if cls is None:  # a label the model does not know: carried over unchanged
+                        out.append(orig)
+                        continue
+                    ring, cm = cls in RING_CLASSES, object_mask(r, x.shape[0])
+                    refined = {"copy": cm}
+                    for src in ("production", "adapter"):
+                        refined[src] = refine_object(cm, maps[src].argmax(0) == cls, self.s.band_px, ring)
+                    for src, m in refined.items():
+                        proposals[src][m] = cls
+                    reason = stop_reason(cm, refined[source], free_map == cls, ring, threshold)
+                    res = object_result(refined[source], r, cls)
+                    stop = stop or reason or (None if res else "vanished")
+                    out.append(from_box([res], w, h, box)[0] if res else orig)
+                state.proposals[url] = proposals
+                if stop:  # keep the carried copy on this image and let the physician look
+                    out = list(carried)
+                journal.append(self.s.journal_dir, key[0], key[1],
+                               {"event": "propose", "url": url, "distance": distance, "source": source, "stop": stop})
+                return {"result": out, "score": 0.0 if stop else 1.0, "model_version": version,
+                        "propagation": {"stop": stop, **meta}}
+            finally:
+                self.interactive.clear()
 
     # ---- long-term training --------------------------------------------------------------------
     def next_run(self, now: dt.datetime | None = None) -> str | None:
@@ -413,7 +532,7 @@ class OnlineService:
                 cand, history = trainer.train_epochs(
                     start, x, y, anchors, mode="heavy", epochs=epochs, lr=self.s.lr, amp=self.amp,
                     anchor_frac=self.s.anchor_frac,
-                    max_seconds=self.s.train_max_hours * 3600)
+                    max_seconds=self.s.train_max_hours * 3600, pause=self.interactive)
                 if len(train) >= self.s.bn_recal_min:
                     trainer.recalibrate_bn(cand, x)
                 return cand, history
@@ -634,6 +753,13 @@ def create_app(settings: Settings | None = None, service: OnlineService | None =
         tasks = payload.get("tasks")
         if not isinstance(tasks, list) or not tasks:
             return jsonify(error="tasks must be a non-empty list"), 400
+        ctx = payload.get("context")
+        if isinstance(ctx, dict) and ctx.get("action") == "propagate":
+            if len(tasks) != 1 or not isinstance(tasks[0], dict):
+                raise ValueError("propagate needs exactly one task")
+            task = {**tasks[0], "project": tasks[0].get("project") or payload.get("project")}
+            result = svc.propagate(task, label, stage, ctx)
+            return jsonify(results=[result], model_version=result["model_version"])
         results = []
         for t in tasks:
             try:

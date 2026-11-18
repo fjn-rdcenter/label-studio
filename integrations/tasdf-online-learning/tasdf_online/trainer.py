@@ -8,6 +8,7 @@ import json
 import math
 import random
 import subprocess
+import threading
 import time
 
 import numpy as np
@@ -117,7 +118,8 @@ def augment(x: torch.Tensor, y: torch.Tensor, rng: random.Random) -> tuple[torch
 
 def train_epochs(base: nn.Module, x: torch.Tensor, y: torch.Tensor, anchors: tuple | None, *, mode: str, epochs: int,
                  lr: float, amp: bool, anchor_frac: float = 0.25, batch: int = 8,
-                 micro_batch: int = 2, max_seconds: float | None = None, seed: int = 0) -> tuple[nn.Module, list[dict]]:
+                 micro_batch: int = 2, max_seconds: float | None = None, seed: int = 0,
+                 pause: threading.Event | None = None) -> tuple[nn.Module, list[dict]]:
     """Epoch-based supervised training (CE + soft-Dice, IGNORE-aware) of the `mode` subset of a copy of `base`.
 
     Each optimizer step uses `batch` images: project samples plus at most `anchor_frac` anchors.
@@ -157,6 +159,8 @@ def train_epochs(base: nn.Module, x: torch.Tensor, y: torch.Tensor, anchors: tup
                 loss = loss * len(xb) / len(bx)
                 scaler.scale(loss).backward()
                 total += float(loss.detach())
+            while pause is not None and pause.is_set():  # a physician is waiting on the per-well adapter
+                time.sleep(0.05)
             scaler.step(opt)
             scaler.update()
             sched.step()

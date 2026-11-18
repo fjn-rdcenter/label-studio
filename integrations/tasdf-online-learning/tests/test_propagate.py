@@ -59,3 +59,9 @@ def test_object_result_keeps_identity_and_ring():
     assert r["id"] == "zp1" and r["from_name"] == "pl-3" and r["value"]["polygonlabels"] == ["ZP"]
     assert len(r["value"]["holes"]) == 1
     assert object_result(np.zeros((256, 256), bool), tpl, 1) is None
+
+
+def test_boundary_f_of_a_mask_filling_the_frame_is_finite():
+    full = np.ones((256, 256), bool)
+    assert boundary_f(full, full) == 1.0
+    assert 0.0 <= boundary_f(full, disk(60)) < 0.5

@@ -64,7 +64,9 @@ def refine_object(carried: np.ndarray, model: np.ndarray, band_px: int, ring: bo
 
 
 def _edge(mask: np.ndarray) -> np.ndarray:
-    return mask & ~(cv2.erode(mask.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0)
+    # outside the frame counts as background: a mask touching the border still has an edge there
+    inner = cv2.erode(mask.astype(np.uint8), np.ones((3, 3), np.uint8), borderType=cv2.BORDER_CONSTANT, borderValue=0)
+    return mask & ~(inner > 0)
 
 
 def boundary_f(a: np.ndarray, b: np.ndarray, tol_px: int = 2) -> float:
