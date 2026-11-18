@@ -219,18 +219,22 @@ def _decode_gray(raw: bytes, what: str) -> np.ndarray:
         raise ValueError(f"{what} is not a supported image") from exc
 
 
-def fetch_image(ls_url: str, token: str, source: str, timeout: float = 30) -> tuple[np.ndarray, int, int]:
-    """Download or decode a task image from Label Studio -> (float32 [0,1] SIZE x SIZE gray, orig_w, orig_h)."""
+def fetch_gray(ls_url: str, token: str, source: str, timeout: float = 30) -> np.ndarray:
+    """Download or decode a task image from Label Studio -> uint8 gray at its original size."""
     if source.startswith("data:image/") and "," in source:
         try:
             raw = base64.b64decode(source.split(",", 1)[1], validate=False)
         except Exception as exc:
             raise ValueError("not a valid base64 image data URI") from exc
-        gray = _decode_gray(raw, "data URI image")
-    else:
-        resp = requests.get(ls_media_url(ls_url, source), headers={"Authorization": f"Token {token}"}, timeout=timeout)
-        resp.raise_for_status()
-        gray = _decode_gray(resp.content, source)
+        return _decode_gray(raw, "data URI image")
+    resp = requests.get(ls_media_url(ls_url, source), headers={"Authorization": f"Token {token}"}, timeout=timeout)
+    resp.raise_for_status()
+    return _decode_gray(resp.content, source)
+
+
+def fetch_image(ls_url: str, token: str, source: str, timeout: float = 30) -> tuple[np.ndarray, int, int]:
+    """Download or decode a task image from Label Studio -> (float32 [0,1] SIZE x SIZE gray, orig_w, orig_h)."""
+    gray = fetch_gray(ls_url, token, source, timeout)
     return preprocess(gray), gray.shape[1], gray.shape[0]
 
 
